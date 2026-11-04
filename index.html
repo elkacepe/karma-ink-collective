@@ -1,0 +1,977 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Agenda de Karma Ink Collective: cotización con turno, Mi sesión y panel del estudio.">
+<title>Karma Ink Collective</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap">
+<style>
+  /* Layout: app de una columna pensada para 360 px; la agenda del estudio se abre en 4 columnas desde 1024 px. */
+  :root{
+    --paper:#FAFAF7; --ink:#121212; --violet:#6B2FBF; --lilac:#E8E3F3; --stone:#7A7A75; --jade:#1F8A70;
+    --display:'Syne','Arial Black',system-ui,sans-serif;
+    --body:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    color-scheme:light;
+  }
+  html,body{background:var(--paper);color:var(--ink)}
+  body{font-family:var(--body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:40;background:var(--paper)}
+  .gutter{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+  h1,h2,h3{text-wrap:balance}
+  .tabnums{font-variant-numeric:tabular-nums}
+  .noscroll::-webkit-scrollbar{display:none}.noscroll{scrollbar-width:none}
+  :focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+  @keyframes rise{from{transform:translateY(16px);opacity:.4}to{transform:none;opacity:1}}
+  .rise{animation:rise .22s ease-out}
+  #boot{padding:48px 16px;font-family:var(--body);color:var(--stone)}
+</style>
+
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      colors: { paper:'#FAFAF7', ink:'#121212', violet:'#6B2FBF', lilac:'#E8E3F3', stone:'#7A7A75', jade:'#1F8A70' },
+      fontFamily: { display:['Syne','"Arial Black"','system-ui','sans-serif'], sans:['Inter','system-ui','-apple-system','"Segoe UI"','Roboto','sans-serif'] }
+    } }
+  };
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/dist/htm.umd.js"></script>
+
+</head>
+<body>
+<div id="root"><p id="boot">Cargando la agenda…</p></div>
+
+<script>
+(function(){
+'use strict';
+const { useState, useEffect, useMemo, useRef } = React;
+const html = htm.bind(React.createElement);
+
+/* ---------- Catálogo de ejemplo ---------- */
+const ARTISTS = [
+  { id:'regina',   name:'Regina',   style:'Abstracto y acuarela', days:[2,3,4,5],   daysLabel:'Martes a viernes',    open:11, close:19 },
+  { id:'paula',    name:'Paula',    style:'Blackwork',            days:[3,4,5,6,0], daysLabel:'Miércoles a domingo', open:10, close:18 },
+  { id:'emiliano', name:'Emiliano', style:'Realismo black and grey y tradición mexicana', days:[2,3,4,5,6], daysLabel:'Martes a sábado', open:12, close:20 },
+  { id:'santiago', name:'Santiago', style:'Microrrealismo y color', days:[4,5,6,0],  daysLabel:'Jueves a domingo',    open:9,  close:17 },
+];
+const SIZES = [
+  { id:'chico',   name:'Chico',             limit:'Hasta 7 cm',  hours:1, price:1800 },
+  { id:'mediano', name:'Mediano',           limit:'Hasta 15 cm', hours:2, price:3500 },
+  { id:'grande',  name:'Grande',            limit:'Hasta 25 cm', hours:4, price:7000 },
+  { id:'jornada', name:'Sesión de jornada', limit:'Mangas y piezas de varias sesiones', hours:7, price:11000 },
+];
+const ART = {
+  regina:   { background:'radial-gradient(circle at 34% 38%, rgba(107,47,191,.9) 0 26%, transparent 27%), radial-gradient(circle at 64% 64%, rgba(31,138,112,.55) 0 31%, transparent 32%), #E8E3F3' },
+  paula:    { background:'radial-gradient(circle at 50% 108%, #FAFAF7 0 40%, transparent 41%), #121212' },
+  emiliano: { background:'linear-gradient(90deg, #121212 0 25%, rgba(18,18,18,.7) 25% 50%, #7A7A75 50% 75%, rgba(122,122,117,.35) 75% 100%), #FAFAF7' },
+  santiago: { background:'radial-gradient(circle, #1F8A70 0 2.5px, transparent 3px) 0 0/12px 12px, radial-gradient(circle, #6B2FBF 0 2px, transparent 2.5px) 6px 6px/12px 12px, #E8E3F3' },
+};
+
+/* ---------- Reglas ---------- */
+const KEY = 'karma-ink-agenda-v1', ME_KEY = 'karma-ink-mi-sesion';
+const MIN = 6e4, H = 36e5, DAY = 864e5, PREP = 30;
+const DEPOSIT_WINDOW = 48 * H, REF_LOCK = 72 * H, CANCEL_LIMIT = 72 * H, BOOK_AHEAD = 72 * H;
+const OCCUPY = ['pendiente','confirmada','realizada','ausente'];
+const ACTIVE = ['pendiente','confirmada'];
+const STATUS = {
+  pendiente:  { label:'Pendiente de anticipo', cls:'bg-lilac text-violet' },
+  confirmada: { label:'Confirmada',            cls:'bg-ink text-paper' },
+  vencida:    { label:'Vencida',               cls:'bg-stone/15 text-stone line-through decoration-1' },
+  realizada:  { label:'Realizada',             cls:'bg-jade/10 text-jade' },
+  ausente:    { label:'Ausente',               cls:'bg-stone/15 text-ink' },
+  cancelada:  { label:'Cancelada',             cls:'bg-stone/15 text-stone' },
+};
+
+const artistOf = id => ARTISTS.find(a => a.id === id);
+const sizeOf = id => SIZES.find(s => s.id === id);
+const suggest = q => Math.round(q * 0.3 / 100) * 100;
+const balance = s => s.quoteFinal - (s.depositPaid || 0);
+const hasDeposit = s => s.depositPaid != null;
+const isReady = s => ACTIVE.includes(s.status) && hasDeposit(s) && s.refsReviewed;
+const missing = s => [!hasDeposit(s) && 'anticipo', !s.refsReviewed && 'referencias'].filter(Boolean);
+const sessionEnd = s => s.start + sizeOf(s.size).hours * H;
+
+const money = n => '$' + Math.round(n).toLocaleString('es-AR');
+const digits = v => String(v || '').replace(/\D/g, '');
+const pad = n => String(n).padStart(2, '0');
+const fTime = t => { const d = new Date(t); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+const fDay = t => new Date(t).toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long' });
+const fDayShort = t => new Date(t).toLocaleDateString('es-AR', { weekday:'short', day:'numeric', month:'short' }).replace(/\./g, '');
+const fWhen = t => fDayShort(t) + ' · ' + fTime(t);
+const fPhone = p => { const d = digits(p); return d.length === 10 ? d.slice(0,2)+' '+d.slice(2,6)+' '+d.slice(6) : d; };
+const startOfDay = t => { const d = new Date(t); d.setHours(0,0,0,0); return d; };
+const works = (a, d) => a.days.includes(new Date(d).getDay());
+const cx = (...c) => c.filter(Boolean).join(' ');
+const uid = () => Math.random().toString(36).slice(2, 10);
+const rel = ms => { const h = Math.round(ms / H); if (Math.abs(h) < 48) return h + ' h'; return Math.round(ms / DAY) + ' días'; };
+const normUrl = v => {
+  v = String(v || '').trim(); if (!v) return '';
+  if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+  try { const u = new URL(v); return u.hostname.includes('.') ? u.href : null; } catch (e) { return null; }
+};
+const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const newCode = taken => { let c; do { c = 'KI-'; for (let i = 0; i < 4; i++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]; } while (taken.has(c)); return c; };
+
+/* Un artista atiende a una persona por vez: la sesión ocupa su duración + 30 min de preparación. */
+function conflicts(sessions, artistId, start, hours, ignoreId) {
+  const b0 = start, b1 = start + (hours * 60 + PREP) * MIN;
+  return sessions.some(s => {
+    if (s.id === ignoreId || s.artist !== artistId || !OCCUPY.includes(s.status)) return false;
+    const a0 = s.start, a1 = s.start + (sizeOf(s.size).hours * 60 + PREP) * MIN;
+    return a0 < b1 && b0 < a1;
+  });
+}
+/* Turnos cada 30 min; solo si la sesión entra entera antes del cierre y el tramo está libre. */
+function daySlots(sessions, artist, size, day, now) {
+  if (!works(artist, day)) return [];
+  const out = [];
+  for (let m = artist.open * 60; m + size.hours * 60 <= artist.close * 60; m += 30) {
+    const t = startOfDay(day); t.setMinutes(m);
+    const ts = t.getTime();
+    if (ts < now + BOOK_AHEAD) continue;
+    if (conflicts(sessions, artist.id, ts, size.hours)) continue;
+    out.push(ts);
+  }
+  return out;
+}
+/* Sin anticipo a las 48 h la sesión vence al abrir la app y libera el horario. */
+function sweep(db) {
+  const now = Date.now(); let changed = false;
+  const sessions = db.sessions.map(s => {
+    if (s.status === 'pendiente' && !hasDeposit(s) && now >= s.createdAt + DEPOSIT_WINDOW) {
+      changed = true; return { ...s, status:'vencida', expiredAt: s.createdAt + DEPOSIT_WINDOW };
+    }
+    return s;
+  });
+  return changed ? { ...db, sessions } : db;
+}
+
+/* ---------- Datos de ejemplo (inventados, relativos a hoy) ---------- */
+function seed() {
+  const now = Date.now();
+  const dayFrom = (id, n, dir = 1) => { const a = artistOf(id); const d = startOfDay(now); d.setDate(d.getDate() + n); while (!works(a, d)) d.setDate(d.getDate() + dir); return d; };
+  const at = (d, h, m = 0) => { const x = new Date(d); x.setHours(h, m, 0, 0); return x.getTime(); };
+  let lockDay, lockArtist;
+  for (const n of [2, 1]) { const d = startOfDay(now); d.setDate(d.getDate() + n); const a = ARTISTS.find(a => works(a, d)); if (a) { lockDay = d; lockArtist = a; break; } }
+  const mk = o => {
+    const size = sizeOf(o.size);
+    return Object.assign({ id: uid(), quoteInitial: size.price, quoteFinal: size.price, depositPaid: null, depositAt: null,
+      refLink: '', refsReviewed: false, refNote: '', refChangedAt: null, status: 'pendiente', createdAt: now - 6 * DAY }, o);
+  };
+  return [
+    mk({ code:'KI-R4MS', phone:'5531872290', name:'Martina Salas', artist: lockArtist.id, size:'mediano', start: at(lockDay, lockArtist.open + 3),
+         depositPaid:1100, depositAt: now - 5*DAY, status:'confirmada', refLink:'https://pinterest.com/martinasalas/manchas-acuarela-antebrazo', refsReviewed:true, refNote:'Traé el diseño aprobado impreso.' }),
+    mk({ code:'KI-V7QC', phone:'5528841907', name:'Valentina Ochoa', artist:'emiliano', size:'grande', start: at(dayFrom('emiliano', 4), 13),
+         depositPaid:2100, depositAt: now - 4*DAY, status:'confirmada', refLink:'https://drive.google.com/drive/folders/retrato-abuela-byn', refsReviewed:true, refNote:'Traé el diseño aprobado. Rasuramos la zona antes de arrancar.' }),
+    mk({ code:'KI-T3RV', phone:'5519034466', name:'Tomás Rivero', artist:'emiliano', size:'mediano', start: at(dayFrom('emiliano', 9), 16),
+         depositPaid:1100, depositAt: now - 2*DAY, status:'confirmada', refLink:'https://instagram.com/p/catrina-perfil-referencia' }),
+    mk({ code:'KI-L5FR', phone:'5567712053', name:'Lucía Ferrer', artist:'paula', size:'jornada', start: at(dayFrom('paula', 5), 10),
+         createdAt: now - 30*H, refLink:'https://pinterest.com/luciaferrer/manga-geometrica-negra' }),
+    mk({ code:'KI-B9AG', phone:'5590328814', name:'Bruno Aguirre', artist:'paula', size:'chico', start: at(dayFrom('paula', 8), 12),
+         createdAt: now - 3*DAY }),
+    mk({ code:'KI-J8PD', phone:'5544107735', name:'Joaquín Pardo', artist:'santiago', size:'chico', start: at(dayFrom('santiago', 4), 11),
+         depositPaid:500, depositAt: now - 3*DAY, status:'confirmada' }),
+    mk({ code:'KI-C6BN', phone:'5572265581', name:'Camila Benítez', artist:'santiago', size:'grande', start: at(dayFrom('santiago', 11), 9),
+         quoteFinal:8200, depositPaid:2100, depositAt: now - 5*DAY, status:'confirmada', refLink:'https://drive.google.com/drive/folders/colibri-color-hombro', refsReviewed:true, refNote:'Sumamos color en las alas, por eso subió la cotización.' }),
+    mk({ code:'KI-S2MZ', phone:'5583306612', name:'Sofía Méndez', artist:'regina', size:'chico', start: at(dayFrom('regina', 10), 14),
+         createdAt: now - 10*H, refLink:'https://pinterest.com/sofimendez/acuarela-abstracta-tobillo' }),
+    mk({ code:'KI-D4LR', phone:'5537719048', name:'Diego Lara', artist:'emiliano', size:'mediano', start: at(dayFrom('emiliano', -3, -1), 15),
+         depositPaid:1100, depositAt: now - 9*DAY, createdAt: now - 12*DAY, status:'realizada', refLink:'https://instagram.com/p/sagrado-corazon-ref', refsReviewed:true }),
+  ];
+}
+
+/* ---------- localStorage ---------- */
+function loadDB() {
+  try { const raw = localStorage.getItem(KEY); if (raw) { const d = JSON.parse(raw); if (d && Array.isArray(d.sessions)) return d; } } catch (e) {}
+  return { sessions: seed() };
+}
+function saveDB(db) { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} }
+function loadMe() { try { return localStorage.getItem(ME_KEY); } catch (e) { return null; } }
+function saveMe(id) { try { id ? localStorage.setItem(ME_KEY, id) : localStorage.removeItem(ME_KEY); } catch (e) {} }
+
+/* ---------- Piezas de UI ---------- */
+const btnPrimary = 'inline-flex items-center justify-center gap-2 rounded-xl bg-violet text-paper font-semibold px-5 h-12 text-[15px] hover:bg-ink transition-colors disabled:opacity-40 disabled:hover:bg-violet';
+const btnGhost = 'inline-flex items-center justify-center gap-2 rounded-xl border border-ink/20 text-ink font-semibold px-5 h-12 text-[15px] hover:border-ink transition-colors';
+const btnSmall = 'inline-flex items-center justify-center rounded-lg border border-ink/20 px-3 h-9 text-sm font-semibold hover:border-ink transition-colors';
+const inputCls = 'w-full rounded-xl border border-ink/20 bg-white px-4 h-12 text-[16px] placeholder:text-stone/70 focus:border-violet focus:outline-none';
+const labelCls = 'block text-[13px] font-semibold mb-1.5';
+const eyebrow = 'text-[11px] font-semibold uppercase tracking-[0.16em] text-stone';
+
+function Art({ id, className }) { return html`<div aria-hidden="true" className=${cx('shrink-0 rounded-lg', className)} style=${ART[id]}></div>`; }
+
+function StatusPill({ s }) {
+  const st = STATUS[s.status];
+  return html`<span className=${cx('inline-flex items-center rounded-full px-2.5 h-6 text-[12px] font-semibold whitespace-nowrap', st.cls)}>${st.label}</span>`;
+}
+/* Etiqueta de lista previa: se lee de un vistazo. */
+function PrepTag({ s, big }) {
+  if (!ACTIVE.includes(s.status)) return html`<${StatusPill} s=${s} />`;
+  if (isReady(s)) return html`<span className=${cx('inline-flex items-center gap-1.5 rounded-md bg-jade text-white font-display font-bold uppercase tracking-wide whitespace-nowrap', big ? 'px-3 h-8 text-[13px]' : 'px-2 h-7 text-[12px]')}>
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5l2.5 2.5L10 3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>Lista</span>`;
+  return html`<span className=${cx('inline-flex items-center gap-1.5 rounded-md border-2 border-dashed border-violet bg-lilac text-violet font-display font-bold uppercase tracking-wide whitespace-nowrap', big ? 'px-3 h-8 text-[13px]' : 'px-2 h-7 text-[12px]')}>Le falta algo</span>`;
+}
+function Check({ ok }) {
+  return ok
+    ? html`<span className="grid place-items-center w-7 h-7 rounded-full bg-jade text-white shrink-0"><svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5l2.5 2.5L10 3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg></span>`
+    : html`<span className="w-7 h-7 rounded-full border-2 border-dashed border-violet shrink-0"></span>`;
+}
+function Row({ k, v, strong }) {
+  return html`<div className="flex items-baseline justify-between gap-4 py-2 border-b border-ink/10 last:border-0">
+    <span className="text-stone text-sm">${k}</span><span className=${cx('text-right tabnums', strong ? 'font-bold text-[17px]' : 'font-medium')}>${v}</span></div>`;
+}
+function Toast({ msg }) {
+  if (!msg) return null;
+  return html`<div role="status" className="fixed left-1/2 -translate-x-1/2 z-50 max-w-[calc(100%-32px)] rounded-xl bg-ink text-paper px-4 py-3 text-sm font-medium shadow-lg rise"
+    style=${{ bottom: 'calc(88px + env(safe-area-inset-bottom, 0px))' }}>${msg}</div>`;
+}
+
+function Header({ route }) {
+  const isAdmin = route === 'admin';
+  const link = (h, label) => html`<a href=${'#' + h} className=${cx('px-3 h-9 inline-flex items-center rounded-lg text-sm font-semibold', route === h ? 'bg-lilac text-violet' : 'text-ink hover:bg-ink/5')}>${label}</a>`;
+  return html`<header className="sticky z-30 bg-paper/95 backdrop-blur border-b border-ink/10" style=${{ top: 'env(safe-area-inset-top, 0px)' }}>
+    <div className="gutter mx-auto max-w-6xl h-14 flex items-center justify-between gap-3">
+      <a href="#inicio" className="leading-none" aria-label="Karma Ink Collective, inicio">
+        <span className="block font-display font-bold text-[18px] tracking-tight">KARMA INK</span>
+        <span className="block text-[9px] font-semibold tracking-[0.42em] text-violet mt-0.5">COLLECTIVE</span>
+      </a>
+      <nav className="flex items-center gap-1">
+        ${isAdmin
+          ? html`<span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone mr-1">Panel del estudio</span>${link('inicio', 'Salir')}`
+          : html`${link('cotizar', 'Cotizar')}${link('mi-sesion', 'Mi sesión')}`}
+      </nav>
+    </div>
+  </header>`;
+}
+
+function Footer() {
+  return html`<footer className="border-t border-ink/10 mt-8">
+    <div className="gutter mx-auto max-w-6xl py-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-[13px] text-stone">
+      <p>Karma Ink Collective · nombres, montos y horarios de ejemplo.</p>
+      <a href="#admin" className="font-semibold text-ink underline underline-offset-4 decoration-ink/30">Panel del estudio</a>
+    </div>
+  </footer>`;
+}
+
+/* ---------- Inicio ---------- */
+function Home() {
+  return html`<main>
+    <section className="gutter mx-auto max-w-6xl pt-7 pb-10 grid gap-8 lg:grid-cols-[1.1fr_1fr] lg:items-end">
+      <div className="max-w-xl">
+        <p className=${eyebrow}>Cuatro artistas · un estudio</p>
+        <h1 className="font-display font-bold text-[38px] leading-[1.04] tracking-tight mt-3 sm:text-[56px]">Tu tatuaje, listo antes de llegar.</h1>
+        <p className="mt-4 text-[16px] text-ink/80 max-w-md">Cotizá por tamaño, elegí turno con tu artista y mandá tus referencias con tiempo. El día de la sesión solo queda tatuar.</p>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <a href="#cotizar" className=${btnPrimary}>Cotizar mi sesión</a>
+          <a href="#mi-sesion" className=${btnGhost}>Ya tengo turno</a>
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-2 max-w-md lg:max-w-none" aria-hidden="true">
+        ${ARTISTS.map(a => html`<${Art} key=${a.id} id=${a.id} className="aspect-[3/4] w-full rounded-xl" />`)}
+      </div>
+    </section>
+
+    <section className="gutter mx-auto max-w-6xl py-8 border-t border-ink/10">
+      <h2 className="font-display font-bold text-[26px] tracking-tight">El colectivo</h2>
+      <ul className="mt-5 grid gap-3 sm:grid-cols-2">
+        ${ARTISTS.map(a => html`<li key=${a.id} className="flex gap-4 items-center rounded-2xl bg-white border border-ink/10 p-3">
+          <${Art} id=${a.id} className="w-16 h-16 rounded-xl" />
+          <div className="min-w-0">
+            <p className="font-display font-bold text-[19px] leading-tight">${a.name}</p>
+            <p className="text-[14px] text-ink/80">${a.style}</p>
+            <p className="text-[12px] text-stone mt-0.5 tabnums">${a.daysLabel} · ${a.open}:00 a ${a.close}:00</p>
+          </div>
+        </li>`)}
+      </ul>
+    </section>
+
+    <section className="gutter mx-auto max-w-6xl py-8 border-t border-ink/10 grid gap-8 lg:grid-cols-2">
+      <div>
+        <h2 className="font-display font-bold text-[26px] tracking-tight">Cómo se arma tu sesión</h2>
+        <ol className="mt-5 grid gap-4">
+          ${[
+            ['Cotizás y elegís turno', 'La cotización sale por tamaño. Tu artista la ajusta si la pieza lo pide.'],
+            ['Dejás el anticipo en 48 horas', 'Es el 30 % de la cotización. Aparta el horario solo para vos.'],
+            ['Mandás tus referencias antes', 'Tu artista las revisa con tiempo y llega con el diseño pensado.'],
+          ].map(([t, d], i) => html`<li key=${i} className="flex gap-4">
+            <span className="font-display font-bold text-violet text-[22px] leading-none w-6 shrink-0 tabnums">${i + 1}</span>
+            <div><p className="font-semibold">${t}</p><p className="text-[14px] text-ink/70">${d}</p></div>
+          </li>`)}
+        </ol>
+      </div>
+      <div>
+        <h2 className="font-display font-bold text-[26px] tracking-tight">Tamaños</h2>
+        <div className="mt-5 rounded-2xl border border-ink/10 bg-white divide-y divide-ink/10">
+          ${SIZES.map(s => html`<div key=${s.id} className="flex items-center justify-between gap-3 px-4 py-3">
+            <div className="min-w-0"><p className="font-semibold">${s.name}</p><p className="text-[13px] text-stone">${s.limit} · ${s.hours} h</p></div>
+            <p className="font-display font-bold text-[18px] tabnums">${money(s.price)}</p>
+          </div>`)}
+        </div>
+        <p className="text-[13px] text-stone mt-2">Precios en pesos mexicanos. Es una estimación inicial.</p>
+      </div>
+    </section>
+    <${Footer} />
+  </main>`;
+}
+
+/* ---------- Cotizar ---------- */
+function Section({ n, id, title, hint, error, children }) {
+  return html`<section id=${id} className="py-6 border-b border-ink/10 scroll-mt-20">
+    <div className="flex items-baseline gap-3">
+      <span className="font-display font-bold text-violet text-[15px] tabnums">${n}</span>
+      <h2 className="font-display font-bold text-[21px] tracking-tight">${title}</h2>
+    </div>
+    ${hint && html`<p className="text-[13px] text-stone mt-1 ml-[26px]">${hint}</p>`}
+    ${error && html`<p role="alert" className="mt-3 rounded-lg bg-lilac text-violet text-[14px] font-semibold px-3 py-2">${error}</p>`}
+    <div className="mt-4">${children}</div>
+  </section>`;
+}
+
+function Cotizar({ db, onBook }) {
+  const [aid, setAid] = useState(null);
+  const [sid, setSid] = useState(null);
+  const [dayT, setDayT] = useState(null);
+  const [slot, setSlot] = useState(null);
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [ref, setRef] = useState('');
+  const [err, setErr] = useState({});
+  const artist = artistOf(aid), size = sizeOf(sid);
+
+  const days = useMemo(() => {
+    if (!artist || !size) return [];
+    const now = Date.now(), base = startOfDay(now), out = [];
+    for (let i = 3; i <= 42; i++) {
+      const d = new Date(base); d.setDate(d.getDate() + i);
+      const sl = daySlots(db.sessions, artist, size, d, now);
+      if (sl.length) out.push({ t: d.getTime(), slots: sl });
+    }
+    return out;
+  }, [aid, sid, db.sessions]);
+
+  useEffect(() => { if (!days.some(d => d.t === dayT)) setDayT(days.length ? days[0].t : null); }, [days]);
+  const current = days.find(d => d.t === dayT);
+  useEffect(() => { if (slot && (!current || !current.slots.includes(slot))) setSlot(null); }, [days, dayT]);
+
+  const clear = k => err[k] && setErr(e => ({ ...e, [k]: null }));
+  function submit() {
+    const e = {};
+    if (!artist) e.artist = 'Elegí con quién te querés tatuar.';
+    else if (!size) e.size = 'Elegí un tamaño para calcular la cotización.';
+    else if (!slot) e.slot = 'Elegí un día y un horario.';
+    else {
+      if (name.trim().length < 2) e.name = 'Contanos tu nombre.';
+      if (digits(phone).length < 8) e.phone = 'Revisá tu celular: con él volvés a tu sesión.';
+      if (ref.trim() && normUrl(ref) === null) e.ref = 'Pegá un enlace completo, por ejemplo https://pinterest.com/…';
+    }
+    setErr(e);
+    const first = Object.keys(e)[0];
+    if (first) { const el = document.getElementById('f-' + first); el && el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    const res = onBook({ artist: aid, size: sid, start: slot, name: name.trim(), phone: digits(phone), refLink: normUrl(ref) || '' });
+    if (res === 'taken') { setSlot(null); setErr({ slot: 'Ese horario se acaba de ocupar. Elegí otro.' }); }
+  }
+
+  const choice = (on) => cx('text-left rounded-2xl border p-3 transition-colors', on ? 'border-violet bg-lilac ring-1 ring-violet' : 'border-ink/15 bg-white hover:border-ink/40');
+
+  return html`<main className="pb-40">
+    <div className="gutter mx-auto max-w-2xl">
+      <div className="pt-6">
+        <p className=${eyebrow}>Cotización y turno</p>
+        <h1 className="font-display font-bold text-[30px] leading-tight tracking-tight mt-2">Armá tu sesión</h1>
+      </div>
+
+      <${Section} n="1" id="f-artist" title="Artista" error=${err.artist}>
+        <div className="grid gap-2 sm:grid-cols-2">
+          ${ARTISTS.map(a => html`<button key=${a.id} type="button" aria-pressed=${aid === a.id} onClick=${() => { setAid(a.id); clear('artist'); }} className=${cx(choice(aid === a.id), 'flex gap-3 items-center')}>
+            <${Art} id=${a.id} className="w-12 h-12" />
+            <span className="min-w-0">
+              <span className="block font-display font-bold text-[17px] leading-tight">${a.name}</span>
+              <span className="block text-[13px] text-ink/80 leading-snug">${a.style}</span>
+              <span className="block text-[12px] text-stone tabnums">${a.daysLabel} · ${a.open} a ${a.close} h</span>
+            </span>
+          </button>`)}
+        </div>
+      <//>
+
+      <${Section} n="2" id="f-size" title="Tamaño" error=${err.size} hint="La cotización es una estimación: tu artista la ajusta si la pieza lo pide.">
+        <div className="grid grid-cols-2 gap-2">
+          ${SIZES.map(s => html`<button key=${s.id} type="button" aria-pressed=${sid === s.id} onClick=${() => { setSid(s.id); clear('size'); }} className=${cx(choice(sid === s.id), 'flex flex-col gap-1 min-h-[112px]')}>
+            <span className="font-display font-bold text-[16px] leading-tight">${s.name}</span>
+            <span className="text-[12px] text-stone leading-snug">${s.limit}</span>
+            <span className="mt-auto flex items-baseline justify-between gap-2 tabnums"><span className="text-[13px]">${s.hours} h</span><span className="font-bold">${money(s.price)}</span></span>
+          </button>`)}
+        </div>
+        ${size && html`<div className="mt-3 rounded-2xl bg-ink text-paper p-4 grid gap-1">
+          <div className="flex justify-between gap-3 tabnums"><span className="text-paper/70 text-sm">Cotización estimada</span><span className="font-semibold">${money(size.price)}</span></div>
+          <div className="flex justify-between gap-3 tabnums"><span className="text-paper/70 text-sm">Anticipo sugerido (30 %)</span><span className="font-display font-bold text-[20px]">${money(suggest(size.price))}</span></div>
+          <p className="text-[13px] text-paper/70 mt-1">El anticipo aparta el horario solo para vos. Tenés 48 horas para dejarlo; si no llega, el turno se libera.</p>
+        </div>`}
+      <//>
+
+      <${Section} n="3" id="f-slot" title="Día y horario" error=${err.slot} hint="Abrimos turnos desde 72 horas adelante: así hay tiempo para el anticipo y para revisar tus referencias.">
+        ${!(artist && size)
+          ? html`<p className="rounded-xl border border-dashed border-ink/20 px-4 py-5 text-[14px] text-stone">Elegí artista y tamaño para ver los horarios libres.</p>`
+          : !days.length
+            ? html`<p className="rounded-xl border border-dashed border-ink/20 px-4 py-5 text-[14px] text-stone">No quedan horarios para este tamaño en las próximas semanas. Probá con otro tamaño o con otro artista.</p>`
+            : html`<div>
+                <div className="flex gap-2 overflow-x-auto noscroll -mx-1 px-1 pb-1" role="listbox" aria-label="Días disponibles">
+                  ${days.map(d => { const on = d.t === dayT; const dd = new Date(d.t);
+                    return html`<button key=${d.t} type="button" role="option" aria-selected=${on} onClick=${() => setDayT(d.t)}
+                      className=${cx('shrink-0 w-[60px] rounded-xl border py-2 text-center transition-colors', on ? 'bg-ink text-paper border-ink' : 'bg-white border-ink/15 hover:border-ink/40')}>
+                      <span className="block text-[11px] uppercase tracking-wider opacity-70">${dd.toLocaleDateString('es-AR', { weekday: 'short' }).replace('.', '')}</span>
+                      <span className="block font-display font-bold text-[20px] leading-tight tabnums">${dd.getDate()}</span>
+                      <span className="block text-[11px] opacity-70">${dd.toLocaleDateString('es-AR', { month: 'short' }).replace('.', '')}</span>
+                    </button>`; })}
+                </div>
+                ${current && html`<div className="mt-3">
+                  <p className="text-[13px] text-stone mb-2">${fDay(current.t)} · ${size.hours} h de sesión</p>
+                  <div className="grid grid-cols-4 gap-2">
+                    ${current.slots.map(t => html`<button key=${t} type="button" aria-pressed=${slot === t} onClick=${() => { setSlot(t); clear('slot'); }}
+                      className=${cx('h-11 rounded-lg border text-[15px] font-semibold tabnums transition-colors', slot === t ? 'bg-violet text-paper border-violet' : 'bg-white border-ink/15 hover:border-violet')}>${fTime(t)}</button>`)}
+                  </div>
+                </div>`}
+              </div>`}
+      <//>
+
+      <${Section} n="4" id="f-datos" title="Tus datos" hint="Sin cuentas: volvés a tu sesión con tu celular y un código.">
+        <div className="grid gap-4">
+          <div id="f-name">
+            <label htmlFor="in-name" className=${labelCls}>Nombre</label>
+            <input id="in-name" className=${inputCls} value=${name} autoComplete="name" onChange=${e => { setName(e.target.value); clear('name'); }} placeholder="Cómo te llamamos" />
+            ${err.name && html`<p role="alert" className="text-violet text-[13px] font-semibold mt-1">${err.name}</p>`}
+          </div>
+          <div id="f-phone">
+            <label htmlFor="in-phone" className=${labelCls}>Celular</label>
+            <input id="in-phone" className=${inputCls} value=${phone} type="tel" inputMode="tel" autoComplete="tel" onChange=${e => { setPhone(e.target.value); clear('phone'); }} placeholder="55 1234 5678" />
+            ${err.phone && html`<p role="alert" className="text-violet text-[13px] font-semibold mt-1">${err.phone}</p>`}
+          </div>
+          <div id="f-ref">
+            <label htmlFor="in-ref" className=${labelCls}>Enlace a tus referencias <span className="font-normal text-stone">(podés sumarlo después)</span></label>
+            <input id="in-ref" className=${inputCls} value=${ref} type="url" inputMode="url" onChange=${e => { setRef(e.target.value); clear('ref'); }} placeholder="Drive, Pinterest o Instagram" />
+            ${err.ref
+              ? html`<p role="alert" className="text-violet text-[13px] font-semibold mt-1">${err.ref}</p>`
+              : html`<p className="text-[13px] text-stone mt-1">Mandá tus referencias antes: tu artista las revisa con tiempo y no rediseña con vos esperando.</p>`}
+          </div>
+        </div>
+      <//>
+    </div>
+
+    <div className="fixed left-0 right-0 bottom-0 z-30 bg-paper/95 backdrop-blur border-t border-ink/10"
+      style=${{ paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))', paddingTop: '10px', paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))' }}>
+      <div className="mx-auto max-w-2xl flex items-center gap-3">
+        <div className="min-w-0 flex-1 leading-tight">
+          ${size
+            ? html`<p className="text-[12px] text-stone truncate">${artist ? artist.name : 'Sin artista'} · ${size.name}${slot ? ' · ' + fWhen(slot) : ''}</p>
+                   <p className="tabnums"><span className="font-bold">${money(size.price)}</span> <span className="text-[12px] text-stone">· anticipo ${money(suggest(size.price))}</span></p>`
+            : html`<p className="text-[13px] text-stone">Elegí artista y tamaño para ver tu cotización.</p>`}
+        </div>
+        <button type="button" onClick=${submit} className=${cx(btnPrimary, 'shrink-0 px-4')}>Apartar turno</button>
+      </div>
+    </div>
+  </main>`;
+}
+
+/* ---------- Turno apartado ---------- */
+function CopyCode({ code }) {
+  const [done, setDone] = useState(false);
+  const ref = useRef(null);
+  function copy() {
+    const ok = () => { setDone(true); setTimeout(() => setDone(false), 1800); };
+    const fallback = () => { const r = document.createRange(); r.selectNodeContents(ref.current); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); };
+    try { navigator.clipboard.writeText(code).then(ok, fallback); } catch (e) { fallback(); }
+  }
+  return html`<div className="flex items-center justify-between gap-3">
+    <span ref=${ref} className="font-display font-extrabold text-[36px] tracking-wider tabnums select-all">${code}</span>
+    <button type="button" onClick=${copy} className="h-9 px-3 rounded-lg bg-paper text-ink text-sm font-semibold">${done ? 'Copiado' : 'Copiar'}</button>
+  </div>`;
+}
+
+function Listo({ s }) {
+  if (!s) return html`<main className="gutter mx-auto max-w-2xl py-10"><p>No encontramos ese turno. <a className="underline" href="#mi-sesion">Buscalo en Mi sesión</a>.</p></main>`;
+  const a = artistOf(s.artist), z = sizeOf(s.size);
+  return html`<main className="gutter mx-auto max-w-2xl pt-6 pb-16">
+    <p className=${eyebrow}>Turno apartado</p>
+    <h1 className="font-display font-bold text-[30px] leading-tight tracking-tight mt-2">Tu horario con ${a.name} quedó guardado</h1>
+    <div className="mt-5 rounded-2xl bg-violet text-paper p-5">
+      <p className="text-[13px] text-paper/80">Tu código</p>
+      <${CopyCode} code=${s.code} />
+      <p className="text-[13px] text-paper/80 mt-1">Guardalo junto con tu celular (${fPhone(s.phone)}): con los dos volvés a tu sesión.</p>
+    </div>
+    <div className="mt-5 rounded-2xl bg-white border border-ink/10 px-4 py-2">
+      <${Row} k="Cuándo" v=${fDay(s.start) + ' · ' + fTime(s.start)} />
+      <${Row} k="Tamaño" v=${z.name + ' · ' + z.hours + ' h'} />
+      <${Row} k="Cotización estimada" v=${money(s.quoteFinal)} />
+    </div>
+    <h2 className="font-display font-bold text-[21px] mt-7">Lo que falta para que esté lista</h2>
+    <ul className="mt-3 grid gap-3">
+      <li className="flex gap-3"><${Check} ok=${false} /><div>
+        <p className="font-semibold">Dejá el anticipo de ${money(suggest(s.quoteInitial))} antes del ${fWhen(s.createdAt + DEPOSIT_WINDOW)}</p>
+        <p className="text-[14px] text-ink/70">El estudio te escribe por WhatsApp con los datos para transferir. Si no llega en 48 horas, el horario se libera para otra persona.</p>
+      </div></li>
+      <li className="flex gap-3"><${Check} ok=${false} /><div>
+        <p className="font-semibold">${s.refLink ? `${a.name} revisa tus referencias` : 'Mandá tus referencias'}</p>
+        <p className="text-[14px] text-ink/70">${s.refLink ? 'Te avisamos en Mi sesión cuando estén revisadas.' : 'Sumá el enlace desde Mi sesión. Después de las 72 horas previas ya no se puede cambiar.'}</p>
+      </div></li>
+    </ul>
+    <a href="#mi-sesion" className=${cx(btnPrimary, 'mt-7 w-full sm:w-auto')}>Ir a mi sesión</a>
+  </main>`;
+}
+
+/* ---------- Mi sesión ---------- */
+function Login({ db, onFound }) {
+  const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+  function go(e) {
+    e.preventDefault();
+    let c = code.trim().toUpperCase().replace(/\s/g, ''); if (c && !c.startsWith('KI-')) c = 'KI-' + c.replace(/^KI/, '');
+    const p = digits(phone);
+    const s = db.sessions.find(x => x.code === c && p.length >= 8 && digits(x.phone).endsWith(p.slice(-10)));
+    if (!s) { setError('No encontramos una sesión con ese celular y código. Revisá los dos datos.'); return; }
+    onFound(s.id);
+  }
+  return html`<main className="gutter mx-auto max-w-md pt-6 pb-16">
+    <p className=${eyebrow}>Mi sesión</p>
+    <h1 className="font-display font-bold text-[30px] leading-tight tracking-tight mt-2">Volvé a tu turno</h1>
+    <p className="text-ink/70 mt-2">Con tu celular y el código que te dimos al apartar.</p>
+    <form onSubmit=${go} className="mt-6 grid gap-4" noValidate>
+      <div><label htmlFor="ms-phone" className=${labelCls}>Celular</label>
+        <input id="ms-phone" className=${inputCls} type="tel" inputMode="tel" value=${phone} onChange=${e => { setPhone(e.target.value); setError(''); }} placeholder="55 1234 5678" /></div>
+      <div><label htmlFor="ms-code" className=${labelCls}>Código</label>
+        <input id="ms-code" className=${cx(inputCls, 'uppercase tracking-wider')} value=${code} onChange=${e => { setCode(e.target.value); setError(''); }} placeholder="KI-0000" autoCapitalize="characters" /></div>
+      ${error && html`<p role="alert" className="rounded-lg bg-lilac text-violet text-[14px] font-semibold px-3 py-2">${error}</p>`}
+      <button type="submit" className=${btnPrimary}>Ver mi sesión</button>
+    </form>
+    <div className="mt-8 rounded-2xl border border-dashed border-ink/20 p-4">
+      <p className=${eyebrow}>Datos de ejemplo para probar</p>
+      <div className="mt-2 grid gap-2 text-[14px]">
+        ${[['5531872290', 'KI-R4MS', 'Faltan menos de 72 h: enlace bloqueado'], ['5544107735', 'KI-J8PD', 'Le faltan referencias'], ['5567712053', 'KI-L5FR', 'Pendiente de anticipo']].map(([p, c, d]) =>
+          html`<button key=${c} type="button" onClick=${() => { setPhone(fPhone(p)); setCode(c); setError(''); }} className="text-left rounded-lg hover:bg-ink/5 px-2 py-1.5 -mx-2">
+            <span className="font-semibold tabnums">${fPhone(p)} · ${c}</span><span className="block text-stone text-[13px]">${d}</span></button>`)}
+      </div>
+    </div>
+  </main>`;
+}
+
+function ClientSession({ s, update, onExit, toast }) {
+  const a = artistOf(s.artist), z = sizeOf(s.size);
+  const now = Date.now();
+  const toStart = s.start - now;
+  const active = ACTIVE.includes(s.status);
+  const locked = toStart < REF_LOCK;
+  const [link, setLink] = useState(s.refLink);
+  const [linkErr, setLinkErr] = useState('');
+  const [asking, setAsking] = useState(false);
+  useEffect(() => { setLink(s.refLink); }, [s.refLink]);
+
+  function saveLink() {
+    const n = normUrl(link);
+    if (n === null) { setLinkErr('Pegá un enlace completo, por ejemplo https://pinterest.com/…'); return; }
+    if (n === s.refLink) { toast('Es el mismo enlace que ya tenías.'); return; }
+    update(s.id, { refLink: n, refsReviewed: false, refChangedAt: Date.now() });
+    toast(n ? `Guardado. ${a.name} lo va a revisar de nuevo.` : 'Quitaste el enlace.');
+  }
+  const refund = hasDeposit(s) && toStart >= CANCEL_LIMIT;
+  function cancel() {
+    update(s.id, { status: 'cancelada', cancelledAt: Date.now(), cancelledBy: 'persona', refundDue: refund ? s.depositPaid : 0, depositLost: hasDeposit(s) && !refund ? s.depositPaid : 0 });
+    setAsking(false); toast('Cancelaste tu turno.');
+  }
+
+  let title, sub;
+  if (s.status === 'vencida') { title = 'Tu turno venció'; sub = 'No llegó el anticipo en 48 horas y el horario se liberó. Si querés, cotizá de nuevo.'; }
+  else if (s.status === 'cancelada') { title = 'Turno cancelado'; sub = s.refundDue ? `Cancelaste con más de 72 horas: te devolvemos ${money(s.refundDue)}.` : s.depositLost ? `Cancelaste con menos de 72 horas: el anticipo de ${money(s.depositLost)} se pierde.` : 'No había anticipo registrado, así que no hay nada que devolver.'; }
+  else if (s.status === 'realizada') { title = 'Sesión realizada'; sub = 'Gracias por venir. Cuidá la pieza como te indicó tu artista.'; }
+  else if (s.status === 'ausente') { title = 'No llegaste a la sesión'; sub = 'El anticipo se pierde: ese horario no se pudo ofrecer a otra persona.'; }
+  else if (isReady(s)) { title = 'Tu sesión está lista'; sub = `Anticipo registrado y referencias revisadas. Nos vemos el ${fDay(s.start)}.`; }
+  else { title = 'A tu sesión le falta algo'; sub = 'Completalo antes de ese día y llegás sin sorpresas.'; }
+
+  return html`<main className="gutter mx-auto max-w-2xl pt-6 pb-16">
+    <div className="flex items-center justify-between gap-3">
+      <p className=${cx(eyebrow, 'tabnums')}>Mi sesión · ${s.code}</p>
+      <button type="button" onClick=${onExit} className="text-sm font-semibold underline underline-offset-4 decoration-ink/30">Salir</button>
+    </div>
+    <div className="mt-3 flex flex-wrap items-center gap-2"><${PrepTag} s=${s} big=${true} />${active && html`<${StatusPill} s=${s} />`}</div>
+    <h1 className="font-display font-bold text-[30px] leading-tight tracking-tight mt-3">${title}</h1>
+    <p className="text-ink/75 mt-1">${sub}</p>
+
+    <div className="mt-5 rounded-2xl bg-white border border-ink/10 p-4 flex gap-4">
+      <${Art} id=${a.id} className="w-14 h-14 rounded-xl" />
+      <div className="min-w-0 flex-1">
+        <p className="font-display font-bold text-[18px] leading-tight">${a.name} · ${z.name}</p>
+        <p className="text-[14px] text-ink/80 tabnums">${fDay(s.start)} · ${fTime(s.start)} a ${fTime(sessionEnd(s))}</p>
+        ${active && toStart > 0 && html`<p className="text-[13px] text-stone">Faltan ${rel(toStart)}</p>`}
+      </div>
+    </div>
+
+    <div className="mt-3 rounded-2xl bg-white border border-ink/10 px-4 py-2">
+      <${Row} k="Cotización" v=${money(s.quoteFinal)} />
+      <${Row} k="Anticipo" v=${hasDeposit(s) ? money(s.depositPaid) : 'Sin registrar'} />
+      <${Row} k="Saldo el día de la sesión" v=${money(balance(s))} strong=${true} />
+    </div>
+
+    ${active && html`<section className="mt-7">
+      <h2 className="font-display font-bold text-[21px]">Lista previa</h2>
+      <p className="text-[14px] text-stone">Dos cosas y tu sesión queda lista.</p>
+      <ul className="mt-4 grid gap-4">
+        <li className="flex gap-3"><${Check} ok=${hasDeposit(s)} /><div>
+          ${hasDeposit(s)
+            ? html`<p className="font-semibold">Anticipo registrado: ${money(s.depositPaid)}</p><p className="text-[14px] text-ink/70">Tu horario está apartado.</p>`
+            : html`<p className="font-semibold">Dejá el anticipo de ${money(suggest(s.quoteInitial))}</p>
+                   <p className="text-[14px] text-ink/70">Antes del ${fWhen(s.createdAt + DEPOSIT_WINDOW)} (quedan ${rel(s.createdAt + DEPOSIT_WINDOW - now)}). Lo recibimos por fuera de la app y lo anotamos acá. Si no llega, el horario se libera.</p>`}
+        </div></li>
+        <li className="flex gap-3"><${Check} ok=${s.refsReviewed} /><div className="min-w-0 flex-1">
+          <p className="font-semibold">${s.refsReviewed ? `${a.name} revisó tus referencias` : s.refLink ? `${a.name} todavía no revisó tus referencias` : 'Mandá tus referencias'}</p>
+          ${s.refsReviewed && s.refNote && html`<p className="mt-1 rounded-lg bg-lilac px-3 py-2 text-[14px]"><span className="font-semibold text-violet">Nota de ${a.name}:</span> ${s.refNote}</p>`}
+          ${!s.refsReviewed && html`<p className="text-[14px] text-ink/70">Así llega con el diseño pensado y no rediseña con vos esperando.</p>`}
+        </div></li>
+      </ul>
+
+      <div className="mt-6 rounded-2xl border border-ink/10 bg-white p-4">
+        <label htmlFor="ms-link" className=${labelCls}>Enlace a tus referencias</label>
+        ${locked
+          ? html`<div>
+              <p className="rounded-xl bg-ink/5 px-4 h-12 flex items-center text-[15px] truncate text-ink/70">${s.refLink || 'Sin enlace'}</p>
+              <p className="mt-2 flex gap-2 text-[14px]"><svg className="mt-0.5 shrink-0" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="#6B2FBF"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2" fill="none" stroke="#6B2FBF" stroke-width="1.6"/></svg>
+                <span><b>El enlace quedó fijo.</b> Faltan menos de 72 horas y un cambio de último momento puede obligar a rediseñar la pieza. Si es urgente, hablalo con el estudio.</span></p>
+            </div>`
+          : html`<div>
+              <div className="flex gap-2">
+                <input id="ms-link" className=${cx(inputCls, 'min-w-0')} type="url" inputMode="url" value=${link} onChange=${e => { setLink(e.target.value); setLinkErr(''); }} placeholder="Drive, Pinterest o Instagram" />
+                <button type="button" onClick=${saveLink} className="shrink-0 h-12 px-4 rounded-xl bg-ink text-paper font-semibold">Guardar</button>
+              </div>
+              ${linkErr && html`<p role="alert" className="text-violet text-[13px] font-semibold mt-1">${linkErr}</p>`}
+              <p className="text-[13px] text-stone mt-2">Podés cambiarlo hasta el ${fWhen(s.start - REF_LOCK)}. Si lo cambiás, ${a.name} lo vuelve a revisar.</p>
+            </div>`}
+      </div>
+
+      <div className="mt-6">
+        ${!asking
+          ? html`<button type="button" onClick=${() => setAsking(true)} className="text-sm font-semibold underline underline-offset-4 decoration-ink/30">Cancelar turno</button>`
+          : html`<div className="rounded-2xl border-2 border-ink p-4 rise">
+              <p className="font-semibold">¿Cancelás tu turno del ${fWhen(s.start)}?</p>
+              <p className="text-[14px] text-ink/75 mt-1">${!hasDeposit(s) ? 'Todavía no dejaste anticipo, así que no hay nada que devolver.' : refund ? `Faltan más de 72 horas: te devolvemos el anticipo de ${money(s.depositPaid)}.` : `Faltan menos de 72 horas: el anticipo de ${money(s.depositPaid)} se pierde, porque ya no da el tiempo para ofrecer el horario a otra persona.`}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick=${cancel} className="h-11 px-4 rounded-xl bg-ink text-paper font-semibold">Sí, cancelar</button>
+                <button type="button" onClick=${() => setAsking(false)} className="h-11 px-4 rounded-xl border border-ink/20 font-semibold">Mantener turno</button>
+              </div>
+            </div>`}
+      </div>
+    </section>`}
+    ${!active && s.status !== 'realizada' && html`<a href="#cotizar" className=${cx(btnPrimary, 'mt-7')}>Cotizar de nuevo</a>`}
+  </main>`;
+}
+
+/* ---------- Panel del estudio ---------- */
+function SessionCard({ s, onOpen }) {
+  const z = sizeOf(s.size), dim = !ACTIVE.includes(s.status) && s.status !== 'realizada';
+  const miss = missing(s);
+  return html`<button type="button" onClick=${() => onOpen(s.id)} className=${cx('w-full text-left rounded-xl border bg-white p-3 hover:border-ink/50 transition-colors', dim ? 'border-ink/10 opacity-60' : 'border-ink/15')}>
+    <div className="flex items-start justify-between gap-2">
+      <span className="font-display font-bold text-[16px] tabnums leading-7">${fTime(s.start)}–${fTime(sessionEnd(s))}</span>
+      <${PrepTag} s=${s} />
+    </div>
+    <p className="font-semibold mt-1 truncate">${s.name}</p>
+    <p className="text-[13px] text-stone">${z.name} · ${z.hours} h${OCCUPY.includes(s.status) ? ' · prep. hasta ' + fTime(sessionEnd(s) + PREP * MIN) : ' · horario libre'}</p>
+    ${ACTIVE.includes(s.status) && miss.length > 0 && html`<p className="text-[13px] font-semibold text-violet mt-1">Falta: ${miss.join(' y ')}</p>`}
+  </button>`;
+}
+
+function DetailSheet({ s, update, close, toast }) {
+  const a = artistOf(s.artist), z = sizeOf(s.size);
+  const sugg = suggest(s.quoteInitial);
+  const now = Date.now();
+  const active = ACTIVE.includes(s.status);
+  const [dep, setDep] = useState(String(sugg));
+  const [editDep, setEditDep] = useState(false);
+  const [depErr, setDepErr] = useState('');
+  const [qf, setQf] = useState(String(s.quoteFinal));
+  const [note, setNote] = useState(s.refNote || '');
+  const [cancelAsk, setCancelAsk] = useState(false);
+  useEffect(() => { const k = e => e.key === 'Escape' && close(); window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, []);
+
+  const qfNum = parseInt(digits(qf), 10);
+  const finalShown = qfNum > 0 ? qfNum : s.quoteFinal;
+  const saldo = finalShown - (s.depositPaid || 0);
+
+  function registerDeposit() {
+    const n = parseInt(digits(dep), 10);
+    if (!(n > 0)) { setDepErr('Anotá un monto mayor a cero.'); return; }
+    update(s.id, { depositPaid: n, depositAt: Date.now(), status: s.status === 'pendiente' ? 'confirmada' : s.status });
+    setEditDep(false); toast('Anticipo registrado.');
+  }
+  function onQuote(v) { setQf(v); const n = parseInt(digits(v), 10); if (n > 0) update(s.id, { quoteFinal: n }); }
+  function saveNote() { if (note !== (s.refNote || '')) { update(s.id, { refNote: note.trim() }); toast('Nota guardada.'); } }
+  const refund = hasDeposit(s) && s.start - now >= CANCEL_LIMIT;
+  function setStatus(st) {
+    const patch = { status: st };
+    if (st === 'cancelada') Object.assign(patch, { cancelledAt: Date.now(), cancelledBy: 'estudio', refundDue: refund ? s.depositPaid : 0, depositLost: hasDeposit(s) && !refund ? s.depositPaid : 0 });
+    if (st === 'ausente') Object.assign(patch, { depositLost: s.depositPaid || 0 });
+    update(s.id, patch); setCancelAsk(false); toast('Sesión marcada como ' + STATUS[st].label.toLowerCase() + '.');
+  }
+  const refChangedAfterReview = s.refChangedAt && !s.refsReviewed && s.refLink && s.createdAt < s.refChangedAt - MIN;
+
+  return html`<div className="fixed inset-0 z-40 flex items-end sm:items-stretch sm:justify-end" role="dialog" aria-modal="true" aria-label=${'Sesión de ' + s.name}>
+    <button type="button" aria-label="Cerrar" onClick=${close} className="absolute inset-0 bg-ink/40"></button>
+    <div className="relative w-full sm:max-w-md max-h-[92%] sm:max-h-none overflow-y-auto bg-paper rounded-t-3xl sm:rounded-none rise"
+      style=${{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}>
+      <div className="sticky top-0 z-10 bg-paper/95 backdrop-blur border-b border-ink/10 gutter py-3 flex items-center justify-between gap-3">
+        <div className="min-w-0"><p className=${cx(eyebrow, 'tabnums')}>${s.code} · ${a.name}</p><p className="font-display font-bold text-[19px] truncate">${s.name}</p></div>
+        <button type="button" onClick=${close} className=${btnSmall}>Cerrar</button>
+      </div>
+      <div className="gutter pt-4 grid gap-5">
+        <div className="flex flex-wrap items-center gap-2"><${PrepTag} s=${s} big=${true} /><${StatusPill} s=${s} /></div>
+        <div className="rounded-2xl bg-white border border-ink/10 px-4 py-2">
+          <${Row} k="Turno" v=${fWhen(s.start) + '–' + fTime(sessionEnd(s))} />
+          <${Row} k="Preparación del espacio" v=${'hasta ' + fTime(sessionEnd(s) + PREP * MIN)} />
+          <${Row} k="Tamaño" v=${z.name + ' · ' + z.hours + ' h'} />
+          <${Row} k="Celular" v=${fPhone(s.phone)} />
+        </div>
+
+        <section>
+          <h3 className="font-display font-bold text-[17px]">Anticipo</h3>
+          ${s.status === 'vencida'
+            ? html`<p className="mt-2 text-[14px] text-ink/75">Venció sin anticipo el ${fWhen(s.expiredAt)}. El horario quedó libre.</p>`
+            : hasDeposit(s) && !editDep
+              ? html`<div className="mt-2 flex items-center justify-between gap-3 rounded-xl bg-jade/10 px-4 py-3">
+                  <div><p className="font-bold text-jade tabnums">${money(s.depositPaid)} registrado</p><p className="text-[13px] text-stone">${s.depositAt ? fWhen(s.depositAt) : ''}${s.depositPaid !== sugg ? ' · sugerido ' + money(sugg) : ''}</p></div>
+                  ${active && html`<button type="button" onClick=${() => { setDep(String(s.depositPaid)); setEditDep(true); }} className=${btnSmall}>Corregir</button>`}
+                </div>`
+              : active
+                ? html`<div className="mt-2 rounded-xl border border-ink/15 bg-white p-4">
+                    <p className="text-[14px]">Sugerido: <b className="tabnums">${money(sugg)}</b> <span className="text-stone">(30 % de ${money(s.quoteInitial)})</span></p>
+                    ${!hasDeposit(s) && html`<p className="text-[13px] text-stone mt-0.5">Vence el ${fWhen(s.createdAt + DEPOSIT_WINDOW)} · quedan ${rel(s.createdAt + DEPOSIT_WINDOW - now)}</p>`}
+                    <label htmlFor="ad-dep" className=${cx(labelCls, 'mt-3')}>Monto recibido</label>
+                    <div className="flex gap-2">
+                      <input id="ad-dep" className=${cx(inputCls, 'min-w-0 tabnums')} inputMode="numeric" value=${dep} onChange=${e => { setDep(e.target.value); setDepErr(''); }} />
+                      <button type="button" onClick=${registerDeposit} className="shrink-0 h-12 px-4 rounded-xl bg-violet text-paper font-semibold">Registrar</button>
+                    </div>
+                    ${depErr && html`<p role="alert" className="text-violet text-[13px] font-semibold mt-1">${depErr}</p>`}
+                    <p className="text-[13px] text-stone mt-2">La app no cobra: el pago se recibe por fuera y acá solo se anota.</p>
+                  </div>`
+                : html`<p className="mt-2 text-[14px] text-stone">Sin anticipo registrado.</p>`}
+        </section>
+
+        <section>
+          <h3 className="font-display font-bold text-[17px]">Cotización y saldo</h3>
+          <div className="mt-2 rounded-xl border border-ink/15 bg-white p-4 grid gap-3">
+            <p className="text-[14px] flex justify-between gap-3"><span className="text-stone">Inicial, por tamaño</span><span className="tabnums font-medium">${money(s.quoteInitial)}</span></p>
+            <div>
+              <label htmlFor="ad-quote" className=${labelCls}>Cotización final</label>
+              <input id="ad-quote" className=${cx(inputCls, 'tabnums')} inputMode="numeric" value=${qf} disabled=${!active} onChange=${e => onQuote(e.target.value)} />
+              <p className="text-[13px] text-stone mt-1">Ajustala si la pieza lo pide. El anticipo registrado no cambia.</p>
+            </div>
+            <p className="flex justify-between items-baseline gap-3 border-t border-ink/10 pt-3"><span className="text-[14px]">Saldo a cobrar el día</span><span className="font-display font-bold text-[22px] tabnums">${money(saldo)}</span></p>
+            ${saldo < 0 && html`<p className="text-[13px] text-violet font-semibold">El anticipo supera la cotización final: queda saldo a favor de la persona.</p>`}
+          </div>
+        </section>
+
+        <section>
+          <h3 className="font-display font-bold text-[17px]">Referencias</h3>
+          <div className="mt-2 rounded-xl border border-ink/15 bg-white p-4 grid gap-3">
+            ${s.refLink
+              ? html`<a href=${s.refLink} target="_blank" rel="noopener noreferrer" className="text-violet font-semibold underline underline-offset-4 break-all">${s.refLink.replace(/^https?:\/\//, '')}</a>`
+              : html`<p className="text-[14px] text-stone">Todavía no mandó referencias.</p>`}
+            ${refChangedAfterReview && html`<p className="rounded-lg bg-lilac text-violet text-[13px] font-semibold px-3 py-2">Cambió el enlace el ${fWhen(s.refChangedAt)}. Volvé a revisarlas.</p>`}
+            <label className=${cx('flex items-center gap-3 rounded-xl border px-4 h-12', s.refLink && active ? 'cursor-pointer border-ink/20' : 'opacity-50 border-ink/10')}>
+              <input id="ad-reviewed" type="checkbox" className="w-5 h-5 accent-[#1F8A70]" checked=${!!s.refsReviewed} disabled=${!s.refLink || !active}
+                onChange=${() => update(s.id, { refsReviewed: !s.refsReviewed, reviewedAt: Date.now() })} />
+              <span className="font-semibold">Referencias revisadas</span>
+            </label>
+            <div>
+              <label htmlFor="ad-note" className=${labelCls}>Nota para la persona</label>
+              <textarea id="ad-note" rows="2" className="w-full rounded-xl border border-ink/20 bg-white px-4 py-3 text-[16px] focus:border-violet focus:outline-none" value=${note} disabled=${!active}
+                onChange=${e => setNote(e.target.value)} onBlur=${saveNote} placeholder="Traé el diseño aprobado"></textarea>
+            </div>
+          </div>
+        </section>
+
+        ${active && html`<section>
+          <h3 className="font-display font-bold text-[17px]">Estado</h3>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button type="button" onClick=${() => setStatus('realizada')} className="h-11 rounded-xl bg-jade text-white font-semibold">Realizada</button>
+            <button type="button" onClick=${() => setStatus('ausente')} className="h-11 rounded-xl border border-ink/20 font-semibold">Ausente</button>
+          </div>
+          ${!cancelAsk
+            ? html`<button type="button" onClick=${() => setCancelAsk(true)} className="mt-3 text-sm font-semibold underline underline-offset-4 decoration-ink/30">Cancelar sesión</button>`
+            : html`<div className="mt-3 rounded-xl border-2 border-ink p-4 rise">
+                <p className="text-[14px]">${!hasDeposit(s) ? 'No hay anticipo registrado.' : refund ? `Faltan 72 horas o más: hay que devolver ${money(s.depositPaid)}.` : `Faltan menos de 72 horas: el anticipo de ${money(s.depositPaid)} se pierde.`} El horario vuelve a quedar libre.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" onClick=${() => setStatus('cancelada')} className="h-11 px-4 rounded-xl bg-ink text-paper font-semibold">Confirmar cancelación</button>
+                  <button type="button" onClick=${() => setCancelAsk(false)} className="h-11 px-4 rounded-xl border border-ink/20 font-semibold">Volver</button>
+                </div>
+              </div>`}
+          <p className="text-[13px] text-stone mt-2">Si la persona no se presenta, el anticipo se pierde.</p>
+        </section>`}
+        ${s.status === 'cancelada' && html`<p className="rounded-xl bg-white border border-ink/10 px-4 py-3 text-[14px]">${s.refundDue ? `Anticipo a devolver: ${money(s.refundDue)}.` : s.depositLost ? `Anticipo perdido: ${money(s.depositLost)}.` : 'Sin anticipo registrado.'} Canceló ${s.cancelledBy === 'persona' ? 'la persona' : 'el estudio'} el ${fWhen(s.cancelledAt)}.</p>`}
+        ${s.status === 'ausente' && s.depositLost > 0 && html`<p className="rounded-xl bg-white border border-ink/10 px-4 py-3 text-[14px]">Anticipo perdido: ${money(s.depositLost)}.</p>`}
+      </div>
+    </div>
+  </div>`;
+}
+
+function Admin({ db, update, resetDemo, toast }) {
+  const now = Date.now();
+  const [tab, setTab] = useState('agenda');
+  const [fa, setFa] = useState('todos');
+  const [openId, setOpenId] = useState(null);
+  const [resetAsk, setResetAsk] = useState(false);
+  const [day, setDay] = useState(() => {
+    const up = db.sessions.filter(s => s.start >= startOfDay(now).getTime() && ACTIVE.includes(s.status)).sort((a, b) => a.start - b.start)[0];
+    return startOfDay(up ? up.start : now).getTime();
+  });
+  const stripRef = useRef(null);
+  useEffect(() => { const el = stripRef.current && stripRef.current.querySelector('[aria-selected="true"]'); el && el.scrollIntoView({ inline: 'center', block: 'nearest' }); }, [tab]);
+
+  const days = useMemo(() => { const out = [], b = startOfDay(now); for (let i = -3; i <= 30; i++) { const d = new Date(b); d.setDate(d.getDate() + i); out.push(d.getTime()); } return out; }, []);
+  const shown = ARTISTS.filter(a => fa === 'todos' || a.id === fa);
+  const inFilter = s => fa === 'todos' || s.artist === fa;
+  const daySessions = id => db.sessions.filter(s => s.artist === id && startOfDay(s.start).getTime() === day).sort((a, b) => a.start - b.start);
+  const week = db.sessions.filter(s => inFilter(s) && ACTIVE.includes(s.status) && s.start >= now && s.start < now + 7 * DAY);
+  const toReview = db.sessions.filter(s => inFilter(s) && ACTIVE.includes(s.status) && s.start >= now && !isReady(s)).sort((a, b) => a.start - b.start);
+  const open = db.sessions.find(s => s.id === openId);
+
+  return html`<main className="pb-16">
+    <div className="gutter mx-auto max-w-6xl pt-5">
+      <h1 className="font-display font-bold text-[28px] leading-tight tracking-tight">Agenda del estudio</h1>
+      <div className="mt-3 grid grid-cols-2 gap-2 max-w-md">
+        <div className="rounded-xl bg-jade text-white px-4 py-3"><p className="font-display font-bold text-[26px] leading-none tabnums">${week.filter(isReady).length}</p><p className="text-[13px] mt-1">listas · próximos 7 días</p></div>
+        <div className="rounded-xl bg-lilac text-violet px-4 py-3"><p className="font-display font-bold text-[26px] leading-none tabnums">${week.filter(s => !isReady(s)).length}</p><p className="text-[13px] mt-1 font-medium">les falta algo</p></div>
+      </div>
+
+      <div className="mt-5 flex gap-1 rounded-xl bg-ink/5 p-1 max-w-md" role="tablist">
+        ${[['agenda', 'Agenda'], ['revisar', `Por revisar (${toReview.length})`]].map(([k, l]) => html`<button key=${k} type="button" role="tab" aria-selected=${tab === k} onClick=${() => setTab(k)}
+          className=${cx('flex-1 h-10 rounded-lg text-sm font-semibold', tab === k ? 'bg-white shadow-sm' : 'text-ink/70')}>${l}</button>`)}
+      </div>
+
+      <div className="mt-3 flex gap-2 overflow-x-auto noscroll -mx-1 px-1">
+        ${[['todos', 'Todos']].concat(ARTISTS.map(a => [a.id, a.name])).map(([k, l]) => html`<button key=${k} type="button" aria-pressed=${fa === k} onClick=${() => setFa(k)}
+          className=${cx('shrink-0 h-9 px-3 rounded-full border text-sm font-semibold inline-flex items-center gap-2', fa === k ? 'bg-ink text-paper border-ink' : 'bg-white border-ink/15')}>
+          ${k !== 'todos' && html`<${Art} id=${k} className="w-4 h-4 rounded" />`}${l}</button>`)}
+      </div>
+    </div>
+
+    ${tab === 'agenda' && html`<div className="gutter mx-auto max-w-6xl">
+      <div ref=${stripRef} className="mt-4 flex gap-1.5 overflow-x-auto noscroll -mx-1 px-1 pb-1" role="listbox" aria-label="Días">
+        ${days.map(t => { const d = new Date(t), on = t === day, isToday = t === startOfDay(now).getTime();
+          const list = db.sessions.filter(s => inFilter(s) && ACTIVE.includes(s.status) && startOfDay(s.start).getTime() === t);
+          const pend = list.some(s => !isReady(s));
+          return html`<button key=${t} type="button" role="option" aria-selected=${on} onClick=${() => setDay(t)}
+            className=${cx('shrink-0 w-[54px] rounded-xl border py-2 text-center', on ? 'bg-ink text-paper border-ink' : 'bg-white border-ink/15', t < startOfDay(now).getTime() && !on && 'opacity-60')}>
+            <span className="block text-[10px] uppercase tracking-wider opacity-70">${isToday ? 'hoy' : d.toLocaleDateString('es-AR', { weekday: 'short' }).replace('.', '')}</span>
+            <span className="block font-display font-bold text-[19px] leading-tight tabnums">${d.getDate()}</span>
+            <span className="flex justify-center gap-0.5 h-2 mt-0.5">${list.slice(0, 4).map((s, i) => html`<span key=${i} className=${cx('w-1.5 h-1.5 rounded-full', isReady(s) ? 'bg-jade' : 'bg-violet')}></span>`)}</span>
+          </button>`; })}
+      </div>
+      <p className="mt-3 font-display font-bold text-[18px] first-letter:uppercase">${fDay(day)}</p>
+      <div className=${cx('mt-3 grid gap-5', shown.length > 1 && 'lg:grid-cols-4 lg:gap-4')}>
+        ${shown.map(a => { const list = daySessions(a.id), on = works(a, day);
+          return html`<section key=${a.id} className="min-w-0">
+            <div className="flex items-center gap-2 pb-2 border-b-2 border-ink">
+              <${Art} id=${a.id} className="w-7 h-7 rounded-md" />
+              <h2 className="font-display font-bold text-[17px]">${a.name}</h2>
+              <span className="ml-auto text-[12px] text-stone tabnums">${on ? a.open + '–' + a.close + ' h' : 'No atiende'}</span>
+            </div>
+            <div className="mt-2 grid gap-2">
+              ${list.length ? list.map(s => html`<${SessionCard} key=${s.id} s=${s} onOpen=${setOpenId} />`)
+                : html`<p className="text-[13px] text-stone py-3">${on ? 'Agenda libre.' : 'Día sin turnos.'}</p>`}
+            </div>
+          </section>`; })}
+      </div>
+    </div>`}
+
+    ${tab === 'revisar' && html`<div className="gutter mx-auto max-w-3xl mt-4">
+      <p className="text-[14px] text-stone">Sesiones próximas que todavía no están listas, de la más cercana a la más lejana.</p>
+      <div className="mt-3 grid gap-2">
+        ${toReview.length ? toReview.map(s => { const a = artistOf(s.artist), soon = s.start - now < REF_LOCK;
+          return html`<button key=${s.id} type="button" onClick=${() => setOpenId(s.id)} className="text-left rounded-xl border border-ink/15 bg-white p-3 flex gap-3 items-start hover:border-ink/50">
+            <${Art} id=${a.id} className="w-10 h-10 rounded-lg" />
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-center gap-2"><span className="font-semibold">${s.name}</span>${soon && html`<span className="text-[11px] font-bold uppercase tracking-wide bg-ink text-paper rounded px-1.5 py-0.5">Menos de 72 h</span>`}</span>
+              <span className="block text-[13px] text-stone tabnums">${a.name} · ${fWhen(s.start)} · en ${rel(s.start - now)}</span>
+              <span className="block text-[13px] font-semibold text-violet mt-0.5">Falta: ${missing(s).join(' y ')}</span>
+            </span>
+          </button>`; })
+          : html`<p className="rounded-xl bg-jade/10 text-jade font-semibold px-4 py-4">Todo listo: no hay sesiones con pendientes.</p>`}
+      </div>
+    </div>`}
+
+    <div className="gutter mx-auto max-w-6xl mt-10 pt-5 border-t border-ink/10 text-[13px] text-stone">
+      <p>Todo se guarda en este navegador (localStorage). Los datos son de ejemplo.</p>
+      ${!resetAsk
+        ? html`<button type="button" onClick=${() => setResetAsk(true)} className="mt-2 font-semibold text-ink underline underline-offset-4 decoration-ink/30">Restablecer datos de ejemplo</button>`
+        : html`<div className="mt-2 flex flex-wrap items-center gap-2"><span className="text-ink">Se borran los cambios y vuelve la agenda de ejemplo.</span>
+            <button type="button" onClick=${() => { resetDemo(); setResetAsk(false); }} className=${btnSmall}>Restablecer</button>
+            <button type="button" onClick=${() => setResetAsk(false)} className="font-semibold underline">No</button></div>`}
+    </div>
+
+    ${open && html`<${DetailSheet} key=${open.id} s=${open} update=${update} close=${() => setOpenId(null)} toast=${toast} />`}
+  </main>`;
+}
+
+/* ---------- App ---------- */
+const ROUTES = ['inicio', 'cotizar', 'listo', 'mi-sesion', 'admin'];
+const readRoute = () => { const h = (location.hash || '').replace('#', ''); return ROUTES.includes(h) ? h : 'inicio'; };
+
+function App() {
+  const [db, setDb] = useState(() => sweep(loadDB()));
+  const [route, setRoute] = useState(readRoute);
+  const [meId, setMeId] = useState(loadMe);
+  const [lastId, setLastId] = useState(null);
+  const [msg, setMsg] = useState('');
+  const dbRef = useRef(db); dbRef.current = db;
+  const tRef = useRef(null);
+
+  useEffect(() => { saveDB(db); }, [db]);
+  useEffect(() => {
+    const onHash = () => { setRoute(readRoute()); window.scrollTo(0, 0); };
+    const onStorage = e => { if (e.key === KEY && e.newValue) { try { setDb(sweep(JSON.parse(e.newValue))); } catch (er) {} } };
+    const tick = setInterval(() => setDb(d => sweep(d)), 60000);
+    window.addEventListener('hashchange', onHash); window.addEventListener('storage', onStorage);
+    return () => { window.removeEventListener('hashchange', onHash); window.removeEventListener('storage', onStorage); clearInterval(tick); };
+  }, []);
+
+  const toast = m => { setMsg(m); clearTimeout(tRef.current); tRef.current = setTimeout(() => setMsg(''), 2600); };
+  const update = (id, patch) => setDb(d => ({ ...d, sessions: d.sessions.map(s => s.id === id ? { ...s, ...patch } : s) }));
+  const resetDemo = () => { setDb({ sessions: seed() }); toast('Agenda de ejemplo restablecida.'); };
+
+  function onBook(b) {
+    const cur = sweep(dbRef.current);
+    if (conflicts(cur.sessions, b.artist, b.start, sizeOf(b.size).hours)) return 'taken';
+    const price = sizeOf(b.size).price, now = Date.now();
+    const s = { id: uid(), code: newCode(new Set(cur.sessions.map(x => x.code))), ...b, quoteInitial: price, quoteFinal: price,
+      depositPaid: null, depositAt: null, refsReviewed: false, refNote: '', refChangedAt: b.refLink ? now : null, status: 'pendiente', createdAt: now };
+    setDb({ ...cur, sessions: [...cur.sessions, s] });
+    setLastId(s.id); setMeId(s.id); saveMe(s.id);
+    location.hash = 'listo';
+    return 'ok';
+  }
+  const me = db.sessions.find(s => s.id === meId);
+
+  let view;
+  if (route === 'cotizar') view = html`<${Cotizar} db=${db} onBook=${onBook} />`;
+  else if (route === 'listo') view = html`<${Listo} s=${db.sessions.find(s => s.id === lastId)} />`;
+  else if (route === 'mi-sesion') view = me
+    ? html`<${ClientSession} key=${me.id} s=${me} update=${update} toast=${toast} onExit=${() => { setMeId(null); saveMe(null); }} />`
+    : html`<${Login} db=${db} onFound=${id => { setMeId(id); saveMe(id); }} />`;
+  else if (route === 'admin') view = html`<${Admin} db=${db} update=${update} resetDemo=${resetDemo} toast=${toast} />`;
+  else view = html`<${Home} />`;
+
+  return html`<div className="min-h-full">
+    <${Header} route=${route} />
+    ${view}
+    <${Toast} msg=${msg} />
+  </div>`;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(html`<${App} />`);
+})();
+</script>
+
+</body>
+</html>
