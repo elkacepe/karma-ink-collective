@@ -512,7 +512,7 @@ function Listo({ s }) {
     <ul className="mt-3 grid gap-3">
       <li className="flex gap-3"><${Check} ok=${false} /><div>
         <p className="font-semibold">Dejá el anticipo de ${money(suggest(s.quoteInitial))} antes del ${fWhen(s.createdAt + DEPOSIT_WINDOW)}</p>
-        <p className="text-[14px] text-ink/70">El estudio te escribe por WhatsApp con los datos para transferir. Si no llega en 48 horas, el horario se libera para otra persona.</p>
+        <p className="text-[14px] text-ink/70">Lo pagás por fuera de la app: coordiná con el estudio cómo hacerlo. Cuando lo recibe, lo anota acá. Si no llega en 48 horas, el horario se libera para otra persona.</p>
       </div></li>
       <li className="flex gap-3"><${Check} ok=${false} /><div>
         <p className="font-semibold">${s.refLink ? `${a.name} revisa tus referencias` : 'Mandá tus referencias'}</p>
