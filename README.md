@@ -4,6 +4,10 @@ Webapp de agenda para un colectivo de cuatro tatuadores. Arma la sesión a parti
 
 Pensada primero para el celular: funciona desde 360 px de ancho.
 
+**Previsualización:** <https://karma-ink-collective.vercel.app/>
+
+Está conectada a este repositorio en Vercel: cada push a `main` se publica solo. Los datos viven en el navegador de cada visitante (localStorage), así que lo que reserva una persona no lo ve el panel desde otro dispositivo hasta conectar el backend.
+
 ---
 
 ## 1. Cómo arrancar el proyecto
