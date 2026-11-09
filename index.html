@@ -74,8 +74,14 @@ const ART = {
   santiago: { background:'radial-gradient(circle, #1F8A70 0 2.5px, transparent 3px) 0 0/12px 12px, radial-gradient(circle, #6B2FBF 0 2px, transparent 2.5px) 6px 6px/12px 12px, #E8E3F3' },
 };
 
+/* ---------- Configuración del estudio ---------- */
+/* Clave del panel /admin. Para cambiarla, reemplazá el texto entre comillas. Ver README. */
+const ADMIN_KEY = 'karma-2026';
+/* WhatsApp del estudio, solo dígitos con código de país (ej. '5215512345678'). Vacío: la persona elige el chat. */
+const STUDIO_WHATSAPP = '';
+
 /* ---------- Reglas ---------- */
-const KEY = 'karma-ink-agenda-v1', ME_KEY = 'karma-ink-mi-sesion';
+const KEY = 'karma-ink-agenda-v2', ME_KEY = 'karma-ink-mi-sesion', ADMIN_SESSION_KEY = 'karma-ink-panel';
 const MIN = 6e4, H = 36e5, DAY = 864e5, PREP = 30;
 const DEPOSIT_WINDOW = 48 * H, REF_LOCK = 72 * H, CANCEL_LIMIT = 72 * H, BOOK_AHEAD = 72 * H;
 const OCCUPY = ['pendiente','confirmada','realizada','ausente'];
@@ -154,36 +160,78 @@ function sweep(db) {
 }
 
 /* ---------- Datos de ejemplo (inventados, relativos a hoy) ---------- */
+/* 15 sesiones: 12 en las próximas dos semanas y 3 pasadas. Cubren los seis estados. */
 function seed() {
-  const now = Date.now();
-  const dayFrom = (id, n, dir = 1) => { const a = artistOf(id); const d = startOfDay(now); d.setDate(d.getDate() + n); while (!works(a, d)) d.setDate(d.getDate() + dir); return d; };
-  const at = (d, h, m = 0) => { const x = new Date(d); x.setHours(h, m, 0, 0); return x.getTime(); };
-  let lockDay, lockArtist;
-  for (const n of [2, 1]) { const d = startOfDay(now); d.setDate(d.getDate() + n); const a = ARTISTS.find(a => works(a, d)); if (a) { lockDay = d; lockArtist = a; break; } }
+  const now = Date.now(), limit = now + 14 * DAY;
+  const placed = [];
+  /* Busca el primer hueco libre del artista desde el día indicado, respetando horario,
+     cupo y preparación. Las futuras quedan dentro de los próximos 14 días. */
+  function place(artistId, sizeId, offset, hour, opts = {}) {
+    const a = artistOf(artistId), z = sizeOf(sizeId);
+    const future = offset >= 0;
+    const order = [];
+    if (future) { for (let n = offset; n <= 13; n++) order.push(n); for (let n = offset - 1; n >= 0; n--) order.push(n); }
+    else { for (let n = offset; n >= -13; n--) order.push(n); for (let n = offset + 1; n <= -1; n++) order.push(n); }
+    for (const n of order) {
+      const d = startOfDay(now); d.setDate(d.getDate() + n);
+      if (!works(a, d)) continue;
+      const mins = [];
+      for (let m = a.open * 60; m + z.hours * 60 <= a.close * 60; m += 30) mins.push(m);
+      mins.sort((x, y) => Math.abs(x - hour * 60) - Math.abs(y - hour * 60));
+      for (const m of mins) {
+        const t = new Date(d); t.setMinutes(m); const ts = t.getTime();
+        const end = ts + z.hours * H;
+        if (future && (ts <= now + (opts.minLead || 0) || ts >= limit || (opts.maxLead && ts >= now + opts.maxLead))) continue;
+        if (!future && end >= now) continue;
+        if (conflicts(placed, artistId, ts, z.hours)) continue;
+        return ts;
+      }
+    }
+    throw new Error('Sin hueco para ' + artistId);
+  }
   const mk = o => {
     const size = sizeOf(o.size);
-    return Object.assign({ id: uid(), quoteInitial: size.price, quoteFinal: size.price, depositPaid: null, depositAt: null,
+    const s = Object.assign({ id: uid(), quoteInitial: size.price, quoteFinal: size.price, depositPaid: null, depositAt: null,
       refLink: '', refsReviewed: false, refNote: '', refChangedAt: null, status: 'pendiente', createdAt: now - 6 * DAY }, o);
+    placed.push(s); return s;
   };
+  /* Para «enlace bloqueado»: el primer artista que atiende en las próximas 72 h. */
+  const lockArtist = ARTISTS.find(a => { try { place(a.id, 'mediano', 1, a.open + 3, { maxLead: REF_LOCK - H }); return true; } catch (e) { return false; } });
+
   return [
-    mk({ code:'KI-R4MS', phone:'5531872290', name:'Martina Salas', artist: lockArtist.id, size:'mediano', start: at(lockDay, lockArtist.open + 3),
+    /* Próximas dos semanas (12) */
+    mk({ code:'KI-R4MS', phone:'5531872290', name:'Martina Salas', artist: lockArtist.id, size:'mediano', start: place(lockArtist.id, 'mediano', 1, lockArtist.open + 3, { maxLead: REF_LOCK - H }),
          depositPaid:1100, depositAt: now - 5*DAY, status:'confirmada', refLink:'https://pinterest.com/martinasalas/manchas-acuarela-antebrazo', refsReviewed:true, refNote:'Traé el diseño aprobado impreso.' }),
-    mk({ code:'KI-V7QC', phone:'5528841907', name:'Valentina Ochoa', artist:'emiliano', size:'grande', start: at(dayFrom('emiliano', 4), 13),
+    mk({ code:'KI-V7QC', phone:'5528841907', name:'Valentina Ochoa', artist:'emiliano', size:'grande', start: place('emiliano', 'grande', 3, 13),
          depositPaid:2100, depositAt: now - 4*DAY, status:'confirmada', refLink:'https://drive.google.com/drive/folders/retrato-abuela-byn', refsReviewed:true, refNote:'Traé el diseño aprobado. Rasuramos la zona antes de arrancar.' }),
-    mk({ code:'KI-T3RV', phone:'5519034466', name:'Tomás Rivero', artist:'emiliano', size:'mediano', start: at(dayFrom('emiliano', 9), 16),
-         depositPaid:1100, depositAt: now - 2*DAY, status:'confirmada', refLink:'https://instagram.com/p/catrina-perfil-referencia' }),
-    mk({ code:'KI-L5FR', phone:'5567712053', name:'Lucía Ferrer', artist:'paula', size:'jornada', start: at(dayFrom('paula', 5), 10),
-         createdAt: now - 30*H, refLink:'https://pinterest.com/luciaferrer/manga-geometrica-negra' }),
-    mk({ code:'KI-B9AG', phone:'5590328814', name:'Bruno Aguirre', artist:'paula', size:'chico', start: at(dayFrom('paula', 8), 12),
-         createdAt: now - 3*DAY }),
-    mk({ code:'KI-J8PD', phone:'5544107735', name:'Joaquín Pardo', artist:'santiago', size:'chico', start: at(dayFrom('santiago', 4), 11),
+    mk({ code:'KI-Q8RN', phone:'5529948176', name:'Renata Quiroga', artist:'regina', size:'mediano', start: place('regina', 'mediano', 4, 12),
+         depositPaid:1100, depositAt: now - 3*DAY, status:'confirmada', refLink:'https://pinterest.com/renataq/flores-acuarela-clavicula', refsReviewed:true, refNote:'Traé el diseño aprobado.' }),
+    mk({ code:'KI-J8PD', phone:'5544107735', name:'Joaquín Pardo', artist:'santiago', size:'chico', start: place('santiago', 'chico', 5, 11, { minLead: REF_LOCK + 12 * H }),
          depositPaid:500, depositAt: now - 3*DAY, status:'confirmada' }),
-    mk({ code:'KI-C6BN', phone:'5572265581', name:'Camila Benítez', artist:'santiago', size:'grande', start: at(dayFrom('santiago', 11), 9),
-         quoteFinal:8200, depositPaid:2100, depositAt: now - 5*DAY, status:'confirmada', refLink:'https://drive.google.com/drive/folders/colibri-color-hombro', refsReviewed:true, refNote:'Sumamos color en las alas, por eso subió la cotización.' }),
-    mk({ code:'KI-S2MZ', phone:'5583306612', name:'Sofía Méndez', artist:'regina', size:'chico', start: at(dayFrom('regina', 10), 14),
+    mk({ code:'KI-L5FR', phone:'5567712053', name:'Lucía Ferrer', artist:'paula', size:'jornada', start: place('paula', 'jornada', 5, 10),
+         createdAt: now - 30*H, refLink:'https://pinterest.com/luciaferrer/manga-geometrica-negra' }),
+    mk({ code:'KI-T3RV', phone:'5519034466', name:'Tomás Rivero', artist:'emiliano', size:'mediano', start: place('emiliano', 'mediano', 6, 16),
+         depositPaid:1100, depositAt: now - 2*DAY, status:'confirmada', refLink:'https://instagram.com/p/catrina-perfil-referencia' }),
+    mk({ code:'KI-B9AG', phone:'5590328814', name:'Bruno Aguirre', artist:'paula', size:'chico', start: place('paula', 'chico', 7, 12),
+         createdAt: now - 3*DAY }),
+    mk({ code:'KI-S2MZ', phone:'5583306612', name:'Sofía Méndez', artist:'regina', size:'chico', start: place('regina', 'chico', 8, 14),
          createdAt: now - 10*H, refLink:'https://pinterest.com/sofimendez/acuarela-abstracta-tobillo' }),
-    mk({ code:'KI-D4LR', phone:'5537719048', name:'Diego Lara', artist:'emiliano', size:'mediano', start: at(dayFrom('emiliano', -3, -1), 15),
+    mk({ code:'KI-C6BN', phone:'5572265581', name:'Camila Benítez', artist:'santiago', size:'grande', start: place('santiago', 'grande', 9, 9),
+         quoteFinal:8200, depositPaid:2100, depositAt: now - 5*DAY, status:'confirmada', refLink:'https://drive.google.com/drive/folders/colibri-color-hombro', refsReviewed:true, refNote:'Sumamos color en las alas, por eso subió la cotización.' }),
+    mk({ code:'KI-M3VB', phone:'5561237784', name:'Mateo Villalba', artist:'paula', size:'grande', start: place('paula', 'grande', 10, 10),
+         depositPaid:2500, depositAt: now - 2*DAY, status:'confirmada', refLink:'https://pinterest.com/mateovillalba/mandala-negro-pantorrilla', refsReviewed:true, refNote:'Vení con la zona hidratada los días previos.' }),
+    mk({ code:'KI-A5RS', phone:'5547720931', name:'Agustina Ríos', artist:'emiliano', size:'jornada', start: place('emiliano', 'jornada', 11, 12),
+         depositPaid:3300, depositAt: now - 4*DAY, createdAt: now - 5*DAY, status:'confirmada', refLink:'https://drive.google.com/drive/folders/virgen-guadalupe-espalda-v2', refChangedAt: now - 5*H }),
+    mk({ code:'KI-F2PZ', phone:'5590443218', name:'Federico Paz', artist:'santiago', size:'mediano', start: place('santiago', 'mediano', 11, 13),
+         depositPaid:1100, depositAt: now - 5*DAY, status:'cancelada', cancelledAt: now - 1*DAY, cancelledBy:'persona', refundDue:1100, depositLost:0,
+         refLink:'https://instagram.com/p/golondrina-color-ref' }),
+    /* Pasadas (3) */
+    mk({ code:'KI-D4LR', phone:'5537719048', name:'Diego Lara', artist:'emiliano', size:'mediano', start: place('emiliano', 'mediano', -3, 15),
          depositPaid:1100, depositAt: now - 9*DAY, createdAt: now - 12*DAY, status:'realizada', refLink:'https://instagram.com/p/sagrado-corazon-ref', refsReviewed:true }),
+    mk({ code:'KI-P7HR', phone:'5524418867', name:'Paloma Herrera', artist:'regina', size:'grande', start: place('regina', 'grande', -5, 12),
+         quoteFinal:7500, depositPaid:2100, depositAt: now - 12*DAY, createdAt: now - 14*DAY, status:'realizada', refLink:'https://pinterest.com/palomah/acuarela-ballena-costilla', refsReviewed:true }),
+    mk({ code:'KI-I4CT', phone:'5538806629', name:'Iván Castro', artist:'santiago', size:'chico', start: place('santiago', 'chico', -2, 10),
+         depositPaid:500, depositAt: now - 8*DAY, createdAt: now - 10*DAY, status:'ausente', depositLost:500, refLink:'https://instagram.com/p/micro-brujula-ref', refsReviewed:true }),
   ];
 }
 
@@ -195,6 +243,74 @@ function loadDB() {
 function saveDB(db) { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} }
 function loadMe() { try { return localStorage.getItem(ME_KEY); } catch (e) { return null; } }
 function saveMe(id) { try { id ? localStorage.setItem(ME_KEY, id) : localStorage.removeItem(ME_KEY); } catch (e) {} }
+/* El panel queda abierto hasta cerrar la pestaña (sessionStorage). */
+function loadAdmin() { try { return sessionStorage.getItem(ADMIN_SESSION_KEY) === '1'; } catch (e) { return false; } }
+function saveAdmin(on) { try { on ? sessionStorage.setItem(ADMIN_SESSION_KEY, '1') : sessionStorage.removeItem(ADMIN_SESSION_KEY); } catch (e) {} }
+
+/* ---------- Compartir y calendario ---------- */
+function shareText(s) {
+  const a = artistOf(s.artist), z = sizeOf(s.size);
+  const lines = [
+    'Aparté mi sesión en Karma Ink Collective.',
+    '',
+    'Artista: ' + a.name,
+    'Tamaño: ' + z.name + ' (' + z.hours + ' h)',
+    'Cuándo: ' + fDay(s.start) + ', ' + fTime(s.start) + ' a ' + fTime(sessionEnd(s)),
+    'Código: ' + s.code,
+    hasDeposit(s) ? 'Anticipo registrado: ' + money(s.depositPaid) : 'Anticipo sugerido: ' + money(suggest(s.quoteInitial)) + ', antes del ' + fWhen(s.createdAt + DEPOSIT_WINDOW),
+    '',
+    'Mi sesión: ' + location.origin + location.pathname + '#mi-sesion',
+  ];
+  return lines.join('\n');
+}
+const whatsappUrl = s => 'https://wa.me/' + digits(STUDIO_WHATSAPP) + '?text=' + encodeURIComponent(shareText(s));
+
+const icsDate = t => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+const icsEscape = v => String(v).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+/* Corta las líneas largas como pide el formato iCalendar (RFC 5545). */
+const icsFold = line => {
+  const out = []; let cur = '', bytes = 0;
+  for (const ch of line) {
+    const c = ch.codePointAt(0), b = c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+    if (bytes + b > 73) { out.push(cur); cur = ''; bytes = 0; }
+    cur += ch; bytes += b;
+  }
+  out.push(cur); return out.join('\r\n ');
+};
+function buildIcs(s) {
+  const a = artistOf(s.artist), z = sizeOf(s.size);
+  const desc = [
+    'Sesión de tatuaje con ' + a.name + ' (' + a.style + ').',
+    'Tamaño: ' + z.name + ', ' + z.hours + ' h.',
+    'Código: ' + s.code + '.',
+    hasDeposit(s) ? 'Anticipo registrado: ' + money(s.depositPaid) + '. Saldo el día: ' + money(balance(s)) + '.'
+      : 'Anticipo sugerido: ' + money(suggest(s.quoteInitial)) + ', antes del ' + fWhen(s.createdAt + DEPOSIT_WINDOW) + '.',
+    'Mandá tus referencias antes: a menos de 72 h el enlace se bloquea.',
+    'Mi sesión: ' + location.origin + location.pathname + '#mi-sesion',
+  ].join('\n');
+  return [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Karma Ink Collective//Agenda//ES', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    'UID:' + s.code + '-' + s.start + '@karma-ink-collective',
+    'DTSTAMP:' + icsDate(Date.now()),
+    'DTSTART:' + icsDate(s.start),
+    'DTEND:' + icsDate(sessionEnd(s)),
+    'SUMMARY:' + icsEscape('Tatuaje con ' + a.name + ' · Karma Ink Collective'),
+    'DESCRIPTION:' + icsEscape(desc),
+    'LOCATION:' + icsEscape('Karma Ink Collective'),
+    'STATUS:CONFIRMED',
+    'BEGIN:VALARM', 'ACTION:DISPLAY', 'TRIGGER:-PT24H', 'DESCRIPTION:' + icsEscape('Mañana tenés sesión con ' + a.name), 'END:VALARM',
+    'END:VEVENT', 'END:VCALENDAR',
+  ].map(icsFold).join('\r\n') + '\r\n';
+}
+function downloadIcs(s) {
+  const blob = new Blob([buildIcs(s)], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'karma-ink-' + s.code + '.ics';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 /* ---------- Piezas de UI ---------- */
 const btnPrimary = 'inline-flex items-center justify-center gap-2 rounded-xl bg-violet text-paper font-semibold px-5 h-12 text-[15px] hover:bg-ink transition-colors disabled:opacity-40 disabled:hover:bg-violet';
@@ -232,7 +348,7 @@ function Toast({ msg }) {
     style=${{ bottom: 'calc(88px + env(safe-area-inset-bottom, 0px))' }}>${msg}</div>`;
 }
 
-function Header({ route }) {
+function Header({ route, adminOk, onLock }) {
   const isAdmin = route === 'admin';
   const link = (h, label) => html`<a href=${'#' + h} className=${cx('px-3 h-9 inline-flex items-center rounded-lg text-sm font-semibold', route === h ? 'bg-lilac text-violet' : 'text-ink hover:bg-ink/5')}>${label}</a>`;
   return html`<header className="sticky z-30 bg-paper/95 backdrop-blur border-b border-ink/10" style=${{ top: 'env(safe-area-inset-top, 0px)' }}>
@@ -243,7 +359,9 @@ function Header({ route }) {
       </a>
       <nav className="flex items-center gap-1">
         ${isAdmin
-          ? html`<span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone mr-1">Panel del estudio</span>${link('inicio', 'Salir')}`
+          ? html`<span className="hidden min-[400px]:inline text-[11px] font-semibold uppercase tracking-[0.16em] text-stone mr-1">Panel del estudio</span>${adminOk
+              ? html`<button type="button" onClick=${onLock} className="px-3 h-9 inline-flex items-center rounded-lg text-sm font-semibold text-ink hover:bg-ink/5">Cerrar panel</button>`
+              : link('inicio', 'Salir')}`
           : html`${link('cotizar', 'Cotizar')}${link('mi-sesion', 'Mi sesión')}`}
       </nav>
     </div>
@@ -492,9 +610,16 @@ function CopyCode({ code }) {
   </div>`;
 }
 
-function Listo({ s }) {
+const IconChat = () => html`<svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4h12a1.5 1.5 0 011.5 1.5v7A1.5 1.5 0 0116 14H9l-4 3v-3H4a1.5 1.5 0 01-1.5-1.5v-7A1.5 1.5 0 014 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+const IconCal = () => html`<svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4.5" width="14" height="12.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 8.5h14M7 2.5v4M13 2.5v4" stroke="currentColor" stroke-width="1.6"/></svg>`;
+
+function Listo({ s, toast }) {
   if (!s) return html`<main className="gutter mx-auto max-w-2xl py-10"><p>No encontramos ese turno. <a className="underline" href="#mi-sesion">Buscalo en Mi sesión</a>.</p></main>`;
   const a = artistOf(s.artist), z = sizeOf(s.size);
+  function onIcs() {
+    try { downloadIcs(s); toast('Descargamos tu turno. Abrilo para sumarlo a tu calendario.'); }
+    catch (e) { toast('No pudimos generar el archivo. Probá desde otro navegador.'); }
+  }
   return html`<main className="gutter mx-auto max-w-2xl pt-6 pb-16">
     <p className=${eyebrow}>Turno apartado</p>
     <h1 className="font-display font-bold text-[30px] leading-tight tracking-tight mt-2">Tu horario con ${a.name} quedó guardado</h1>
@@ -503,6 +628,11 @@ function Listo({ s }) {
       <${CopyCode} code=${s.code} />
       <p className="text-[13px] text-paper/80 mt-1">Guardalo junto con tu celular (${fPhone(s.phone)}): con los dos volvés a tu sesión.</p>
     </div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+      <a id="share-wa" href=${whatsappUrl(s)} target="_blank" rel="noopener noreferrer" className=${cx(btnPrimary, 'w-full')}><${IconChat} />Compartir por WhatsApp</a>
+      <button id="dl-ics" type="button" onClick=${onIcs} className=${cx(btnGhost, 'w-full')}><${IconCal} />Agregar a mi calendario</button>
+    </div>
+    <p className="text-[13px] text-stone mt-2">Mandá los datos del turno a quien quieras. El calendario se descarga como archivo .ics y te avisa 24 horas antes.</p>
     <div className="mt-5 rounded-2xl bg-white border border-ink/10 px-4 py-2">
       <${Row} k="Cuándo" v=${fDay(s.start) + ' · ' + fTime(s.start)} />
       <${Row} k="Tamaño" v=${z.name + ' · ' + z.hours + ' h'} />
@@ -519,7 +649,7 @@ function Listo({ s }) {
         <p className="text-[14px] text-ink/70">${s.refLink ? 'Te avisamos en Mi sesión cuando estén revisadas.' : 'Sumá el enlace desde Mi sesión. Después de las 72 horas previas ya no se puede cambiar.'}</p>
       </div></li>
     </ul>
-    <a href="#mi-sesion" className=${cx(btnPrimary, 'mt-7 w-full sm:w-auto')}>Ir a mi sesión</a>
+    <a href="#mi-sesion" className=${cx(btnGhost, 'mt-7 w-full sm:w-auto')}>Ir a mi sesión</a>
   </main>`;
 }
 
@@ -828,7 +958,7 @@ function Admin({ db, update, resetDemo, toast }) {
   const stripRef = useRef(null);
   useEffect(() => { const el = stripRef.current && stripRef.current.querySelector('[aria-selected="true"]'); el && el.scrollIntoView({ inline: 'center', block: 'nearest' }); }, [tab]);
 
-  const days = useMemo(() => { const out = [], b = startOfDay(now); for (let i = -3; i <= 30; i++) { const d = new Date(b); d.setDate(d.getDate() + i); out.push(d.getTime()); } return out; }, []);
+  const days = useMemo(() => { const out = [], b = startOfDay(now); for (let i = -14; i <= 30; i++) { const d = new Date(b); d.setDate(d.getDate() + i); out.push(d.getTime()); } return out; }, []);
   const shown = ARTISTS.filter(a => fa === 'todos' || a.id === fa);
   const inFilter = s => fa === 'todos' || s.artist === fa;
   const daySessions = id => db.sessions.filter(s => s.artist === id && startOfDay(s.start).getTime() === day).sort((a, b) => a.start - b.start);
@@ -914,6 +1044,28 @@ function Admin({ db, update, resetDemo, toast }) {
   </main>`;
 }
 
+/* ---------- Clave del panel ---------- */
+function AdminGate({ onUnlock }) {
+  const [k, setK] = useState('');
+  const [error, setError] = useState('');
+  function go(e) {
+    e.preventDefault();
+    if (k === ADMIN_KEY) { onUnlock(); return; }
+    setError(k ? 'Esa clave no es. Revisala y probá de nuevo.' : 'Escribí la clave del estudio.');
+  }
+  return html`<main className="gutter mx-auto max-w-md pt-8 pb-16">
+    <p className=${eyebrow}>Panel del estudio</p>
+    <h1 className="font-display font-bold text-[30px] leading-tight tracking-tight mt-2">Entrá con la clave</h1>
+    <p className="text-ink/70 mt-2">La agenda tiene datos de las personas, por eso pide clave. Queda abierta hasta que cierres la pestaña.</p>
+    <form onSubmit=${go} className="mt-6 grid gap-4" noValidate>
+      <div><label htmlFor="adm-key" className=${labelCls}>Clave del estudio</label>
+        <input id="adm-key" className=${inputCls} type="password" autoComplete="current-password" value=${k} onChange=${e => { setK(e.target.value); setError(''); }} /></div>
+      ${error && html`<p role="alert" className="rounded-lg bg-lilac text-violet text-[14px] font-semibold px-3 py-2">${error}</p>`}
+      <button type="submit" className=${btnPrimary}>Abrir el panel</button>
+    </form>
+  </main>`;
+}
+
 /* ---------- App ---------- */
 const ROUTES = ['inicio', 'cotizar', 'listo', 'mi-sesion', 'admin'];
 const readRoute = () => { const h = (location.hash || '').replace('#', ''); return ROUTES.includes(h) ? h : 'inicio'; };
@@ -923,6 +1075,7 @@ function App() {
   const [route, setRoute] = useState(readRoute);
   const [meId, setMeId] = useState(loadMe);
   const [lastId, setLastId] = useState(null);
+  const [adminOk, setAdminOk] = useState(loadAdmin);
   const [msg, setMsg] = useState('');
   const dbRef = useRef(db); dbRef.current = db;
   const tRef = useRef(null);
@@ -955,15 +1108,17 @@ function App() {
 
   let view;
   if (route === 'cotizar') view = html`<${Cotizar} db=${db} onBook=${onBook} />`;
-  else if (route === 'listo') view = html`<${Listo} s=${db.sessions.find(s => s.id === lastId)} />`;
+  else if (route === 'listo') view = html`<${Listo} s=${db.sessions.find(s => s.id === (lastId || meId))} toast=${toast} />`;
   else if (route === 'mi-sesion') view = me
     ? html`<${ClientSession} key=${me.id} s=${me} update=${update} toast=${toast} onExit=${() => { setMeId(null); saveMe(null); }} />`
     : html`<${Login} db=${db} onFound=${id => { setMeId(id); saveMe(id); }} />`;
-  else if (route === 'admin') view = html`<${Admin} db=${db} update=${update} resetDemo=${resetDemo} toast=${toast} />`;
+  else if (route === 'admin') view = adminOk
+    ? html`<${Admin} db=${db} update=${update} resetDemo=${resetDemo} toast=${toast} />`
+    : html`<${AdminGate} onUnlock=${() => { setAdminOk(true); saveAdmin(true); }} />`;
   else view = html`<${Home} />`;
 
   return html`<div className="min-h-full">
-    <${Header} route=${route} />
+    <${Header} route=${route} adminOk=${adminOk} onLock=${() => { setAdminOk(false); saveAdmin(false); location.hash = 'inicio'; }} />
     ${view}
     <${Toast} msg=${msg} />
   </div>`;
