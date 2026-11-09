@@ -742,7 +742,7 @@ function ClientSession({ s, update, onExit, toast }) {
     <div className="mt-3 rounded-2xl bg-white border border-ink/10 px-4 py-2">
       <${Row} k="Cotización" v=${money(s.quoteFinal)} />
       <${Row} k="Anticipo" v=${hasDeposit(s) ? money(s.depositPaid) : 'Sin registrar'} />
-      <${Row} k="Saldo el día de la sesión" v=${money(balance(s))} strong=${true} />
+      ${!["ausente","cancelada","vencida"].includes(s.status) && html`<${Row} k="Saldo el día de la sesión" v=${money(balance(s))} strong=${true} />`}
     </div>
 
     ${active && html`<section className="mt-7">
@@ -855,7 +855,7 @@ function DetailSheet({ s, update, close, toast }) {
         <button type="button" onClick=${close} className=${btnSmall}>Cerrar</button>
       </div>
       <div className="gutter pt-4 grid gap-5">
-        <div className="flex flex-wrap items-center gap-2"><${PrepTag} s=${s} big=${true} /><${StatusPill} s=${s} /></div>
+        <div className="flex flex-wrap items-center gap-2"><${PrepTag} s=${s} big=${true} />${active && html`<${StatusPill} s=${s} />`}</div>
         <div className="rounded-2xl bg-white border border-ink/10 px-4 py-2">
           <${Row} k="Turno" v=${fWhen(s.start) + '–' + fTime(sessionEnd(s))} />
           <${Row} k="Preparación del espacio" v=${'hasta ' + fTime(sessionEnd(s) + PREP * MIN)} />
@@ -896,8 +896,10 @@ function DetailSheet({ s, update, close, toast }) {
               <input id="ad-quote" className=${cx(inputCls, 'tabnums')} inputMode="numeric" value=${qf} disabled=${!active} onChange=${e => onQuote(e.target.value)} />
               <p className="text-[13px] text-stone mt-1">Ajustala si la pieza lo pide. El anticipo registrado no cambia.</p>
             </div>
-            <p className="flex justify-between items-baseline gap-3 border-t border-ink/10 pt-3"><span className="text-[14px]">Saldo a cobrar el día</span><span className="font-display font-bold text-[22px] tabnums">${money(saldo)}</span></p>
-            ${saldo < 0 && html`<p className="text-[13px] text-violet font-semibold">El anticipo supera la cotización final: queda saldo a favor de la persona.</p>`}
+            ${['ausente','cancelada','vencida'].includes(s.status)
+              ? html`<p className="border-t border-ink/10 pt-3 text-[14px] text-stone">Sin saldo a cobrar: ${s.status === 'ausente' ? 'la persona no se presentó.' : s.status === 'cancelada' ? 'la sesión se canceló.' : 'la sesión venció sin anticipo.'}</p>`
+              : html`<p className="flex justify-between items-baseline gap-3 border-t border-ink/10 pt-3"><span className="text-[14px]">${s.status === 'realizada' ? 'Saldo del día de la sesión' : 'Saldo a cobrar el día'}</span><span className="font-display font-bold text-[22px] tabnums">${money(saldo)}</span></p>`}
+            ${active && saldo < 0 && html`<p className="text-[13px] text-violet font-semibold">El anticipo supera la cotización final: queda saldo a favor de la persona.</p>`}
           </div>
         </section>
 
