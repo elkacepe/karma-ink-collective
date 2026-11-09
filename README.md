@@ -70,9 +70,9 @@ No hay carpetas: la app entera vive en `index.html`, dividida en bloques marcado
 | 441–596 | Pantalla | `Cotizar`: artista → tamaño → día y horario → datos |
 | 598–654 | Pantalla | `Listo`: código, compartir por WhatsApp, descargar .ics y pendientes |
 | 656–798 | Pantalla | `Login` y `ClientSession`: Mi sesión |
-| 800–1045 | Pantalla | `Admin`, `SessionCard` y `DetailSheet`: panel del estudio |
-| 1047–1067 | Pantalla | `AdminGate`: pide la clave antes de abrir el panel |
-| 1069–1127 | App | Router por hash, estado global, `update`, `onBook`, `resetDemo` |
+| 800–1047 | Pantalla | `Admin`, `SessionCard` y `DetailSheet`: panel del estudio |
+| 1049–1069 | Pantalla | `AdminGate`: pide la clave antes de abrir el panel |
+| 1071–1129 | App | Router por hash, estado global, `update`, `onBook`, `resetDemo` |
 
 Los números de línea son de este commit. Si cambian, buscá por nombre de función.
 
@@ -112,15 +112,15 @@ Una vez que entrás, el panel queda abierto hasta cerrar la pestaña (se guarda 
 
 | Qué | Cómo se comporta hoy | Punto de conexión |
 |---|---|---|
-| **Base de datos** | Todo se guarda en localStorage, clave `karma-ink-agenda-v2`. Solo comparten datos quienes usan el mismo navegador. Dos pestañas abiertas se sincronizan por el evento `storage`. | `loadDB` / `saveDB` (l. 239–243) y el listener `storage` en `App` (l. 1088) |
-| **Crear reserva** | Comprueba choques contra los datos locales y guarda. | `onBook` en `App` (l. 1096). El servidor debe repetir `conflicts` de forma atómica |
+| **Base de datos** | Todo se guarda en localStorage, clave `karma-ink-agenda-v2`. Solo comparten datos quienes usan el mismo navegador. Dos pestañas abiertas se sincronizan por el evento `storage`. | `loadDB` / `saveDB` (l. 239–243) y el listener `storage` en `App` (l. 1090) |
+| **Crear reserva** | Comprueba choques contra los datos locales y guarda. | `onBook` en `App` (l. 1098). El servidor debe repetir `conflicts` de forma atómica |
 | **Cobro del anticipo** | **No hay pago ni tarjeta en ningún lado.** La app solo sugiere el monto. El estudio lo registra a mano en `#admin` con «Registrar», con el monto que quiera. | `registerDeposit` en `DetailSheet` (l. 832) |
 | **Avisos a la persona** | **La app no envía ningún correo, WhatsApp ni SMS por su cuenta.** El código se muestra en pantalla con botón «Copiar». La pantalla `#listo` le dice a la persona que pague por fuera de la app y coordine con el estudio cómo hacerlo. | Textos en `Listo` (l. 616). Si se automatiza un aviso, se dispara desde `onBook` |
 | **Compartir por WhatsApp** | El botón abre `https://wa.me/?text=…` en una pestaña nueva con el texto ya armado: artista, tamaño, día y hora, código, anticipo y enlace a «Mi sesión». **No se manda nada solo:** WhatsApp abre el chat y la persona elige a quién mandarlo y toca enviar. Con `STUDIO_WHATSAPP` vacío, WhatsApp le deja elegir el chat; si cargás el número del estudio, abre directo ese chat. | `shareText` y `whatsappUrl` (l. 251–266). Número del estudio en `STUDIO_WHATSAPP` (l. 81) |
 | **Calendario (.ics)** | El botón «Agregar a mi calendario» genera el archivo `karma-ink-KI-XXXX.ics` en el navegador y lo descarga. Lo abren Google Calendar, Calendario de Apple y Outlook. Trae la hora de la sesión (sin la preparación), el código, el anticipo y un recordatorio 24 h antes. **No se manda ninguna invitación por correo.** | `buildIcs` y `downloadIcs` (l. 280–313) |
-| **Vencimiento a 48 h** | Lo calcula `sweep` en el navegador al abrir la app y luego cada 60 s. No hay tarea programada. | `sweep` (l. 151) e intervalo en `App` (l. 1087). En producción, mover a un job del servidor |
+| **Vencimiento a 48 h** | Lo calcula `sweep` en el navegador al abrir la app y luego cada 60 s. No hay tarea programada. | `sweep` (l. 151) e intervalo en `App` (l. 1089). En producción, mover a un job del servidor |
 | **Identidad de la persona** | Sin cuentas. Se valida celular + código contra los datos locales. La sesión abierta se recuerda en el dispositivo (clave `karma-ink-mi-sesion`) hasta tocar «Salir». | `Login` (l. 657) y `loadMe` / `saveMe` |
-| **Acceso al panel** | Clave simple guardada en el código (`karma-2026`). Se compara en el navegador, así que no es seguridad real: ver «Clave del panel» arriba. | `ADMIN_KEY` (l. 79) y `AdminGate` (l. 1048). En producción, validar en el servidor |
+| **Acceso al panel** | Clave simple guardada en el código (`karma-2026`). Se compara en el navegador, así que no es seguridad real: ver «Clave del panel» arriba. | `ADMIN_KEY` (l. 79) y `AdminGate` (l. 1050). En producción, validar en el servidor |
 | **Referencias** | Solo un enlace de texto. No se suben archivos ni se valida que el enlace exista. | `saveLink` en `ClientSession` (l. 703) |
 | **Reloj** | Usa la hora real del dispositivo y su zona horaria. Los horarios de los artistas se interpretan en esa zona. | `Date.now()` en `daySlots`, `sweep` y pantallas |
 
